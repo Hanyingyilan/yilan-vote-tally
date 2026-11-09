@@ -9,7 +9,9 @@
   const stations = DATA.stations;
   const byId = Object.fromEntries(stations.map((s) => [s.id, s]));
   const districtIds = Object.keys(DATA.districts).map(Number).sort((a, b) => a - b);
-  const villagesOf = (d) => DATA.districts[d].villages;
+  // 各選舉區內的里，依該里最小的投開票所編號排序，整份清單就是 0001、0002、0003… 的數字順序
+  const firstStation = (v) => Math.min(...stations.filter((s) => s.village === v).map((s) => +s.id));
+  const villagesOf = (d) => [...DATA.districts[d].villages].sort((a, b) => firstStation(a) - firstStation(b));
   const stationsOf = (d) => stations.filter((s) => s.district === d);
   const STATUS = { pending: "未開票", counting: "開票中", done: "已完成" };
   const LS_KEY = "yilan-vote-tally:v2";
