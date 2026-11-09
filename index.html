@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f6b57">
+  <title>宜蘭市開票統計</title>
+  <meta name="description" content="宜蘭市各投開票所開票登錄表單，依市民代表選舉區與里分類，可同步到 Google 試算表。">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f6b57'/%3E%3Cpath d='M8 17l5 5 11-12' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="top-row">
+      <div class="brand">
+        <h1 id="title">宜蘭市開票統計</h1>
+        <p id="subtitle" class="muted"></p>
+      </div>
+      <div class="top-actions">
+        <button type="button" id="syncChip" class="chip" aria-live="polite">僅存本機</button>
+        <button type="button" id="btnSettings" class="icon-btn" aria-label="設定">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+      </div>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="頁面">
+      <button type="button" role="tab" id="t-entry" data-tab="entry" aria-controls="tab-entry">填寫票數</button>
+      <button type="button" role="tab" id="t-overview" data-tab="overview" aria-controls="tab-overview">統計總覽</button>
+    </nav>
+  </header>
+
+  <main>
+    <div class="racebar" id="raceBar" role="group" aria-label="選舉項目"></div>
+
+    <section id="tab-entry" role="tabpanel" tabindex="-1" aria-labelledby="t-entry">
+      <div class="filters">
+        <div class="seg" id="districtSeg" role="group" aria-label="市民代表選舉區"></div>
+        <div class="filter-row">
+          <label class="search">
+            <span class="sr-only">搜尋投開票所</span>
+            <input type="search" id="q" placeholder="搜尋編號、里、場地" autocomplete="off">
+          </label>
+          <label class="select">
+            <span class="sr-only">狀態</span>
+            <select id="statusFilter">
+              <option value="all">全部狀態</option>
+              <option value="todo">未完成</option>
+              <option value="pending">未開票</option>
+              <option value="counting">開票中</option>
+              <option value="done">已完成</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div id="list"></div>
+    </section>
+
+    <section id="tab-overview" role="tabpanel" aria-labelledby="t-overview" hidden>
+      <div id="overviewRoot"></div>
+    </section>
+
+    <footer class="foot muted">
+      <p id="source"></p>
+      <p>候選人名單取自中選會公開資料，開票前請再核對有無異動。票數為各投開票所人工登錄的暫計值，非官方結果；正式結果以中央選舉委員會公告為準。</p>
+    </footer>
+  </main>
+
+  <dialog id="editor" aria-labelledby="edTitle"></dialog>
+  <dialog id="settings" aria-labelledby="stTitle"></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="config.js"></script>
+  <script src="data/stations.js"></script>
+  <script src="data/candidates.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
