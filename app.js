@@ -413,6 +413,12 @@
         }
       }
     }
+    // 防呆三：送出前再看一眼是哪一所（避免填到隔壁所）
+    if (todo.length) {
+      const where = cur.kind ? `${cur.name}（合計）` : `${cur.id} ${cur.name}\n${cur.village}　鄰${cur.neighbors}`;
+      const lines = todo.map(([key, d]) => `・${raceByKey[key].label}：共 ${fmt(Object.values(d.votes).reduce((x, y) => x + y, 0) + d.invalid)} 票`).join("\n");
+      if (!confirm(`請確認是不是這一所：\n\n${where}\n\n${lines}\n\n按「確定」＝送出\n按「取消」＝回去看看`)) return false;
+    }
     const now = Date.now();
     for (const [key, d] of todo) {
       let status = d.status;
@@ -822,6 +828,17 @@
         stMsg(res.ok ? `連線成功，雲端目前有 ${(res.records || []).filter((r) => r.updatedAt).length} 筆已填資料。` : res.error || "連線失敗", res.ok ? "ok" : "err");
       } else if (act === "stInit") {
         if (!cur.token) return stMsg("初始化需要同步密碼", "err");
+        // 防呆：雲端已有票數時，必須打字確認，避免開票夜誤按清光
+        const have = await getAll();
+        if (!have.ok) return stMsg(have.error || "連線失敗", "err");
+        const filled = (have.records || []).filter((r) => r.updatedAt).length;
+        if (filled > 0) {
+          const ans = prompt(`⚠ 雲端現在已有 ${filled} 筆票數！\n初始化會把它們全部清空，而且無法復原。\n\n如果真的要清空，請輸入：我要清空`);
+          if (ans === null || ans.trim() !== "我要清空") return stMsg("已取消，雲端資料沒有動。", "ok");
+        } else if (!confirm("雲端目前沒有票數資料，要建立空白表格嗎？")) {
+          return stMsg("已取消。", "ok");
+        }
+        stMsg("建立中…");
         const records = [];
         for (const s of stations) for (const race of racesOf(s)) {
           records.push(wire({ id: s.id, race: race.key, votes: {}, invalid: 0, electors: null, status: "pending", by: "", updatedAt: 0 }));
@@ -898,6 +915,31 @@
     addEventListener("online", syncSoon);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) syncNow(); });
     setInterval(() => { if (!document.hidden) syncNow(); }, SYNC_INTERVAL);
+    setTimeout(checkUpdate, 4000);
+    setInterval(checkUpdate, 120000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) checkUpdate(); });
+  }
+
+  /* ---------- 網站有新版本時自動換新 ---------- */
+  // 版本號寫在 index.html 的 app.js?v=…（由 tools/bump_version.py 更新）。
+  // 只在「沒有開著表單、沒有未送出票數」時才重新整理，不會打斷填寫。
+  async function checkUpdate() {
+    try {
+      const mine = (document.querySelector('script[src*="app.js"]')?.getAttribute("src") || "").match(/v=([\w.-]+)/);
+      if (!mine) return;
+      const res = await fetch(location.pathname + "?_=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) return;
+      const latest = (await res.text()).match(/app\.js\?v=([\w.-]+)/);
+      if (!latest || latest[1] === mine[1]) return;
+      const busy = $("#editor").open || $("#pw").open || $("#settings").open || Object.keys(state.dirty).length > 0;
+      if (busy) return;
+      let tried = "";
+      try { tried = sessionStorage.getItem("yilan-reload") || ""; } catch (e) { /* ignore */ }
+      if (tried === latest[1]) return; // 已經試過一次，避免快取沒更新時一直重整
+      try { sessionStorage.setItem("yilan-reload", latest[1]); } catch (e) { /* ignore */ }
+      toast("網站有新版本，正在更新…");
+      setTimeout(() => location.reload(), 800);
+    } catch (e) { /* 沒網路就算了 */ }
   }
 
   /* ---------- 啟動 ---------- */
