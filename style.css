@@ -347,3 +347,30 @@ tr.sum td { border-top-color: var(--accent); }
 
 /* 統計卡片只剩三張：手機上第一張（完成進度）佔滿一整列 */
 .kpi:first-child { grid-column: 1 / -1; }
+
+/* 儲存提示：綠＝已送出、金＝傳送中、紅＝還沒送出（一眼分辨） */
+.saved[data-state="warn"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.saved[data-state="busy"] { background: var(--counting-soft); color: var(--counting); border-color: var(--gold); }
+.saved b { font-weight: 900; }
+.banner-btn { display: block; width: 100%; margin-top: 10px; min-height: 48px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 700; }
+
+/* ---------- 長輩友善：密碼視窗與大字成功提示 ---------- */
+dialog#pw { width: min(92vw, 460px); height: auto; max-height: 90vh; margin: auto; border-radius: 18px; border: 3px solid var(--accent); }
+.pwform { height: auto; }
+.pwform .body { gap: 14px; padding: 24px 22px 12px; }
+.pwform h2 { font-size: 32px; text-align: center; }
+.pw-sub { font-size: 22px; text-align: center; color: var(--muted); line-height: 1.5; }
+.pw-err { background: var(--accent-soft); color: var(--accent); border: 2px solid var(--accent); border-radius: 10px; padding: 10px 14px; font-size: 22px; font-weight: 900; text-align: center; }
+#pwInput { width: 100%; min-height: 68px; font-size: 32px; text-align: center; border: 3px solid var(--ink); border-radius: 12px; background: #fff; padding: 8px 12px; letter-spacing: .08em; }
+.pw-show { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 22px; }
+.pw-show input { width: 28px; height: 28px; accent-color: var(--accent); }
+.pwform footer { grid-template-columns: 1fr 1.4fr; }
+.pwform .btn { min-height: 60px; font-size: 24px; }
+.saved[data-state="ok"] { text-align: center; padding: 18px 14px; font-size: 24px; }
+.saved .big { font-size: 38px; font-family: var(--serif); font-weight: 900; line-height: 1.3; }
+.saved small { display: block; font-size: 18px; font-weight: 400; margin-top: 4px; }
+.saved[data-state="warn"], .saved[data-state="busy"] { font-size: 22px; }
+.ed footer .btn.primary[data-act="save"] { font-size: 22px; }
+dialog#pw { height: fit-content; }
+.pwform footer { grid-template-columns: 1fr 1fr; }
+.pwform .btn { font-size: 22px; padding: 8px 6px; white-space: nowrap; }

@@ -303,12 +303,13 @@
       </div>
       <footer>
         <button type="button" class="btn" id="edClose" data-act="close">取消</button>
-        <button type="button" class="btn primary" data-act="save">儲存</button>
+        <button type="button" class="btn primary" data-act="save">完成並送出</button>
       </footer>
     </form>`;
     if (!dlg.open) dlg.showModal();
     $$(".panel", dlg).forEach(updateCalc);
     $(`[data-ed-race="${edRace}"]`, dlg)?.scrollIntoView({ inline: "center", block: "nearest" });
+    updateSavedBanner();
   }
   function switchEdRace(key) {
     edRace = key;
@@ -371,19 +372,55 @@
   }
   function updateSavedBanner() {
     const b = $("#savedBanner");
-    if (!b || !ui.savedAt) return;
-    const { keys, at, none } = ui.savedAt;
-    b.hidden = false;
-    if (none) { b.dataset.state = "info"; b.textContent = "沒有新的修改，資料維持原樣。"; return; }
+    if (!b) return;
+    const btn = (label) => `<button type="button" class="banner-btn" data-act="askPassword">${label}</button>`;
+    const show = (st, html, extra = "") => { b.hidden = false; b.dataset.state = st; b.innerHTML = `<span>${html}</span>${extra}`; };
+    if (!ui.savedAt) { b.hidden = true; return; }
+    const { keys, none } = ui.savedAt;
+    if (none) { show("info", "沒有新的修改。"); return; }
+    const names = keys.map((k) => raceByKey[k].label).join("、");
     const pend = keys.filter((k) => state.dirty[rk(ui.editId, k)]);
-    let text, st = "ok";
-    if (!syncUrl()) { text = `已儲存在這支手機（${hhmm(at)}），尚未設定雲端同步`; st = "warn"; }
-    else if (pend.length && ui.error === "NO_TOKEN") { text = `已儲存在這支手機，但還沒輸入同步密碼，尚未上傳`; st = "warn"; }
-    else if (pend.length && ui.error) { text = `已儲存在這支手機，上傳失敗；連上網路後會自動補傳`; st = "warn"; }
-    else if (pend.length) { text = `已儲存（${hhmm(at)}），正在上傳到雲端…`; st = "busy"; }
-    else text = `已儲存並同步到雲端（${hhmm(state.lastSync || at)}）`;
-    b.dataset.state = st;
-    b.textContent = `✓ ${keys.map((k) => raceByKey[k].label).join("、")}：${text}`;
+    const needToken = !!syncUrl() && !state.settings.token;
+    if (!syncUrl()) show("warn", `⚠ <b>還沒送出！</b>這支手機沒有連到雲端。`);
+    else if (pend.length && needToken) show("warn", `⚠ <b>還沒送出！</b>請輸入同步密碼，票數才會送出。`, btn("輸入同步密碼"));
+    else if (pend.length && ui.error) show("warn", `⚠ <b>還沒送出！</b>網路不通，或密碼不對。票數還在手機裡，不用重填。`, btn("重新輸入同步密碼"));
+    else if (pend.length) show("busy", `⏳ <b>傳送中…請稍等</b>`);
+    else show("ok", `<span class="big">✅ 已送出！</span><br>票數已傳到雲端<small>（${names}）</small>`);
+  }
+  // 按「完成並送出」後，如果這支手機還沒有密碼，就直接跳出視窗請他輸入
+  function openPasswordPrompt(errMsg = "") {
+    const dlg = $("#pw");
+    dlg.innerHTML = `<form class="ed pwform" id="pwForm" autocomplete="off" novalidate>
+      <div class="body">
+        <h2 id="pwTitle">請輸入密碼</h2>
+        <p class="pw-sub">密碼由負責人提供。<br>輸入後，票數就會送出。</p>
+        ${errMsg ? `<p class="pw-err" role="alert">${esc(errMsg)}</p>` : ""}
+        <input id="pwInput" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="密碼">
+        <label class="pw-show"><input type="checkbox" id="pwShow"> 顯示密碼</label>
+      </div>
+      <footer>
+        <button type="button" class="btn" data-act="pwLater">稍後再說</button>
+        <button type="button" class="btn primary" data-act="pwGo">送出</button>
+      </footer>
+    </form>`;
+    if (!dlg.open) dlg.showModal();
+    $("#pwInput").focus();
+  }
+  async function submitPassword() {
+    const v = $("#pwInput").value.trim();
+    if (!v) return openPasswordPrompt("請先輸入密碼");
+    state.settings.token = v;
+    saveState();
+    $("#pw").close();
+    renderChip();
+    while (ui.syncing) await new Promise((r) => setTimeout(r, 200));
+    await syncNow();
+    if (ui.error && /密碼/.test(ui.error)) {
+      state.settings.token = "";
+      saveState();
+      renderChip();
+      openPasswordPrompt("密碼不對，請再輸入一次");
+    }
   }
   function closeEditor(force = false) {
     if (!force && edDirty && !confirm("這裡有未儲存的修改，確定放棄？")) return;
@@ -645,16 +682,17 @@
   function renderChip() {
     const chip = $("#syncChip");
     const pending = Object.keys(state.dirty).length;
+    const noToken = !!syncUrl() && !state.settings.token;
     let text, st = "";
-    if (!syncUrl()) { text = pending ? `僅存本機（${pending} 筆）` : "僅存本機"; }
-    else if (ui.syncing) { text = "同步中…"; st = "busy"; }
-    else if (ui.error === "NO_TOKEN") { text = `待輸入同步密碼（${pending} 筆未上傳）`; st = "warn"; }
-    else if (ui.error) { text = `同步失敗${pending ? `，${pending} 筆待傳` : ""}`; st = "warn"; }
-    else if (pending) { text = `${pending} 筆待上傳`; st = "warn"; }
-    else { text = state.lastSync ? `已同步 ${hhmm(state.lastSync)}` : "已連線"; st = "ok"; }
+    if (!syncUrl()) { text = pending ? `⚠ ${pending} 筆還沒送出` : "未連雲端"; st = "warn"; }
+    else if (ui.syncing) { text = "傳送中…"; st = "busy"; }
+    else if (noToken) { text = pending ? `⚠ ${pending} 筆還沒送出` : "未輸入密碼"; st = pending ? "warn" : ""; }
+    else if (ui.error) { text = `⚠ 連線失敗${pending ? `，${pending} 筆還沒送出` : ""}`; st = "warn"; }
+    else if (pending) { text = `傳送中…（${pending} 筆）`; st = "busy"; }
+    else { text = state.lastSync ? `✓ 已同步 ${hhmm(state.lastSync)}` : "已連線"; st = "ok"; }
     chip.textContent = text;
     chip.dataset.state = st;
-    chip.title = ui.error && ui.error !== "NO_TOKEN" ? ui.error : "";
+    chip.title = noToken ? "這支手機還沒輸入同步密碼，只能查看，填的票不會送到雲端。點這裡輸入。" : ui.error ? ui.error : "";
     updateSavedBanner();
   }
 
@@ -687,7 +725,9 @@
     if (act === "stClose") return $("#settings").close();
     if (act === "stSave") {
       state.settings = { ...state.settings, ...readSettings() };
-      saveState(); $("#settings").close(); renderChip(); toast("設定已儲存");
+      saveState(); $("#settings").close(); renderChip();
+      const n = Object.keys(state.dirty).length;
+      toast(n && state.settings.token ? `設定已儲存，正在送出 ${n} 筆票數…` : "設定已儲存");
       if (syncUrl()) syncNow();
       return;
     }
@@ -740,12 +780,24 @@
       const act = t.dataset.act;
       if (!act) return;
       if (act === "close") return closeEditor();
-      if (act === "save") return void saveEditor();
+      if (act === "save") {
+        if (saveEditor() && ui.savedAt && !ui.savedAt.none && syncUrl() && !state.settings.token) openPasswordPrompt();
+        return;
+      }
+      if (act === "askPassword") return openPasswordPrompt();
+      if (act === "pwGo") return void submitPassword();
+      if (act === "pwLater") return $("#pw").close();
       if (act === "csv") return exportCsv();
       if (act === "json") return exportJson();
       if (act === "import") return $("#importFile").click();
       if (act === "print") return print();
       if (act.startsWith("st")) return settingsAction(act);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.target.id === "pwInput") { e.preventDefault(); submitPassword(); }
+    });
+    document.addEventListener("change", (e) => {
+      if (e.target.id === "pwShow") $("#pwInput").type = e.target.checked ? "text" : "password";
     });
     document.addEventListener("input", (e) => {
       const t = e.target;
