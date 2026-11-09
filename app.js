@@ -351,7 +351,7 @@
     const list = raceStations(race);
     const all = agg(race, list);
     const kpis = `<div class="kpis">
-      <div class="kpi"><div class="l">${esc(race.label)}・已完成開票</div><div class="v">${all.done}<span class="muted" style="font-size:18px"> / ${all.n}</span></div><div class="s">${all.counting ? `另有 ${all.counting} 所開票中 · ` : ""}${pct(all.done, all.n)}</div></div>
+      <div class="kpi"><div class="l">${esc(race.label)}・已完成開票</div><div class="v">${all.done}<span class="muted" style="font-size:22px"> / ${all.n}</span></div><div class="s">${all.counting ? `另有 ${all.counting} 所開票中 · ` : ""}${pct(all.done, all.n)}</div></div>
       <div class="kpi"><div class="l">有效票</div><div class="v">${fmt(all.valid)}</div><div class="s">含開票中的所</div></div>
       <div class="kpi"><div class="l">無效票</div><div class="v">${fmt(all.invalid)}</div><div class="s">${pct(all.invalid, all.total)} 佔投票數</div></div>
       <div class="kpi"><div class="l">投票率</div><div class="v">${all.eSum > 0 ? pct(all.tSum, all.eSum) : "–"}</div><div class="s">${all.eSum > 0 ? "依已填選舉人數的已完成所" : "尚未填選舉人數"}</div></div>
