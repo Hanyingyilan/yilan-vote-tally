@@ -94,7 +94,7 @@
   }
   // 彙總某一種選舉在 list 這批投開票所的結果；votes 以候選人號次為 key（呼叫端要確保 list 屬於同一份候選人名單）
   function agg(race, list) {
-    const a = { n: 0, done: 0, counting: 0, votes: {}, invalid: 0, valid: 0, total: 0, eSum: 0, tSum: 0 };
+    const a = { n: 0, done: 0, counting: 0, votes: {}, invalid: 0, valid: 0, total: 0 };
     for (const s of list) {
       if (!race.applies(s)) continue;
       a.n++;
@@ -104,7 +104,6 @@
       const k = calc(r);
       for (const [no, v] of Object.entries(r.votes || {})) a.votes[no] = (a.votes[no] || 0) + (Number(v) || 0);
       a.invalid += k.invalid; a.valid += k.valid; a.total += k.total;
-      if (r.status === "done" && k.electors > 0) { a.eSum += k.electors; a.tSum += k.total; }
     }
     return a;
   }
@@ -268,9 +267,7 @@
         <label class="field sub"><span class="f-name"><span class="f-who">無效票</span></span>
           <input type="text" inputmode="numeric" pattern="[0-9]*" data-invalid value="${rec?.invalid ?? ""}" placeholder="0" aria-label="無效票"></label>
       </div>
-      <dl class="calc"><div><dt>有效票</dt><dd data-c="valid">0</dd></div><div><dt>投票數</dt><dd data-c="total">0</dd></div><div><dt>投票率</dt><dd data-c="rate">–</dd></div></dl>
-      <p class="warn" data-c="warn" role="alert" hidden></p>
-      <label class="slim">選舉人數（選填，用來算投票率）<input type="text" inputmode="numeric" pattern="[0-9]*" data-electors value="${rec?.electors ?? ""}" placeholder="例如 1234"></label>
+      <dl class="calc"><div><dt>有效票</dt><dd data-c="valid">0</dd></div><div><dt>投票數</dt><dd data-c="total">0</dd></div></dl>
     </div>`;
   }
   function openEditor(id, raceKey) {
@@ -329,7 +326,7 @@
     }
     const inv = toInt($("[data-invalid]", panel).value);
     if (inv == null) blank++;
-    return { votes, invalid: inv ?? 0, blank, electors: toInt($("[data-electors]", panel).value), status: $(`input[name=status-${panel.dataset.race}]:checked`, panel).value };
+    return { votes, invalid: inv ?? 0, blank, status: $(`input[name=status-${panel.dataset.race}]:checked`, panel).value };
   }
   function updateCalc(panel) {
     if (!panel) return;
@@ -338,9 +335,6 @@
     const total = valid + d.invalid;
     $('[data-c="valid"]', panel).textContent = fmt(valid);
     $('[data-c="total"]', panel).textContent = fmt(total);
-    $('[data-c="rate"]', panel).textContent = d.electors > 0 ? pct(total, d.electors) : "–";
-    const w = $('[data-c="warn"]', panel);
-    if (d.electors > 0 && total > d.electors) { w.hidden = false; w.textContent = "投票數大於選舉人數，請再確認。"; } else w.hidden = true;
   }
   function saveEditor() {
     const id = ui.editId;
@@ -356,7 +350,7 @@
     for (const [key, d] of todo) {
       let status = d.status;
       if (status === "pending" && (Object.values(d.votes).some((v) => v > 0) || d.invalid > 0)) status = "counting";
-      state.records[rk(id, key)] = { id, race: key, votes: d.votes, invalid: d.invalid, electors: d.electors, status, by, updatedAt: now };
+      state.records[rk(id, key)] = { id, race: key, votes: d.votes, invalid: d.invalid, electors: state.records[rk(id, key)]?.electors ?? null, status, by, updatedAt: now };
       state.dirty[rk(id, key)] = true;
       const radio = $(`#edForm input[name="status-${key}"][value="${status}"]`);
       if (radio) radio.checked = true;
@@ -461,7 +455,6 @@
       <div class="kpi"><div class="l">${esc(race.label)}・已完成開票</div><div class="v">${all.done}<span class="muted" style="font-size:22px"> / ${all.n}</span></div><div class="s">${all.counting ? `另有 ${all.counting} 所開票中 · ` : ""}${pct(all.done, all.n)}</div></div>
       <div class="kpi"><div class="l">有效票</div><div class="v">${fmt(all.valid)}</div><div class="s">含開票中的所</div></div>
       <div class="kpi"><div class="l">無效票</div><div class="v">${fmt(all.invalid)}</div><div class="s">${pct(all.invalid, all.total)} 佔投票數</div></div>
-      <div class="kpi"><div class="l">投票率</div><div class="v">${all.eSum > 0 ? pct(all.tSum, all.eSum) : "–"}</div><div class="s">${all.eSum > 0 ? "依已填選舉人數的已完成所" : "尚未填選舉人數"}</div></div>
     </div>`;
     const compare = compareCard(race);
 
@@ -491,7 +484,7 @@
       // 候選人得票放在最上面，其次才是進度與各項統計
       main = `<div class="ov-grid"><div class="stack">${candBlock(g, all, `${esc(race.full)}・全市得票`, `${esc(progressSub(all))} · 應選 ${g.seats} 席`)}${kpis}${compare}</div><div class="stack">${distTable}${villTable}</div></div>`;
     } else {
-      const line = `<p class="sumline"><b>${esc(race.label)}</b>　已完成 ${all.done}/${all.n} 所 · 有效票 ${fmt(all.valid)} · 無效票 ${fmt(all.invalid)}${all.eSum > 0 ? ` · 投票率 ${pct(all.tSum, all.eSum)}` : ""}</p>`;
+      const line = `<p class="sumline"><b>${esc(race.label)}</b>　已完成 ${all.done}/${all.n} 所 · 有效票 ${fmt(all.valid)} · 無效票 ${fmt(all.invalid)}</p>`;
       let blocks;
       if (race.scope === "district") {
         blocks = `<div class="blocks">${districtIds.map((d) => {
@@ -757,7 +750,7 @@
     document.addEventListener("input", (e) => {
       const t = e.target;
       if (t.id === "q") { ui.q = t.value; return renderList(); }
-      if (t.matches("[data-vote],[data-invalid],[data-electors]")) {
+      if (t.matches("[data-vote],[data-invalid]")) {
         const clean = t.value.replace(/[^\d０-９]/g, "").replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
         if (clean !== t.value) t.value = clean;
       }
@@ -772,7 +765,7 @@
       if (panel && e.target.type === "radio") { edDirty = true; edTouched.add(panel.dataset.race); }
     });
     $("#editor").addEventListener("cancel", (e) => { if (edDirty) { e.preventDefault(); closeEditor(); } });
-    $("#editor").addEventListener("focusin", (e) => { if (e.target.matches("[data-vote],[data-invalid],[data-electors]")) setTimeout(() => e.target.select?.(), 0); });
+    $("#editor").addEventListener("focusin", (e) => { if (e.target.matches("[data-vote],[data-invalid]")) setTimeout(() => e.target.select?.(), 0); });
     addEventListener("hashchange", () => { const h = location.hash.slice(1); if ((h === "entry" || h === "overview") && h !== ui.tab) setTab(h, false); });
     addEventListener("online", syncSoon);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) syncNow(); });

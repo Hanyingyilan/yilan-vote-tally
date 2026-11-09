@@ -174,7 +174,7 @@ dialog#editor, dialog#settings { width: 100%; max-width: none; height: 100%; max
 .field.sub .f-who { font-weight: 500; }
 .slim { display: grid; gap: 4px; font-size: 19px; color: var(--muted); }
 .slim input { font-size: 22px; }
-.calc { margin: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.calc { margin: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .calc div { background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
 .calc dt { font-size: 17px; color: var(--muted); }
 .calc dd { margin: 0; font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -269,7 +269,8 @@ details.card[open] summary { margin-bottom: 10px; }
   .ed { max-height: 90vh; }
   .ed footer { grid-template-columns: auto 1fr 1fr; }
   .ed footer .btn[data-act="saveNext"] { grid-column: auto; order: 0; }
-  .kpis { grid-template-columns: repeat(4, 1fr); }
+  .kpis { grid-template-columns: repeat(3, 1fr); }
+  .kpi:first-child { grid-column: auto; }
   .kpi .v { font-size: 41px; }
   .ov-grid { grid-template-columns: minmax(320px, 5fr) minmax(0, 7fr); align-items: start; }
 }
@@ -343,3 +344,6 @@ tr.sum td { border-top-color: var(--accent); }
 @media (min-width: 900px) {
   .mode { margin: 0; min-width: 260px; }
 }
+
+/* 統計卡片只剩三張：手機上第一張（完成進度）佔滿一整列 */
+.kpi:first-child { grid-column: 1 / -1; }
