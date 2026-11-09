@@ -179,6 +179,87 @@ function readAll_() {
   return { ok: true, records: Object.keys(recs).map(function (k) { return recs[k]; }), serverTime: Date.now() };
 }
 
+/* ---------- 後台歸零（試算表上方選單「開票工具」） ---------- */
+// 歸零 = 把票數清掉、狀態改回「未開票」，並蓋上現在的時間，
+// 所以所有人的手機下次同步（約 20 秒內）也會跟著變成「未開票」，不會把舊資料又傳回來。
+
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('開票工具')
+    .addItem('全部歸零（清空所有票數）', 'resetAll')
+    .addItem('歸零某一個投開票所', 'resetOne')
+    .addToUi();
+}
+
+// match(row)：這一列要不要歸零。dryRun=true 只計算有幾筆（投開票所×選舉），不改任何資料。
+function resetRows_(match, dryRun) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DETAIL);
+    if (!sh || sh.getLastRow() < 2) return 0;
+    var rng = sh.getRange(2, 1, sh.getLastRow() - 1, HEADER.length);
+    var vals = rng.getValues();
+    var now = Date.now();
+    var time = Utilities.formatDate(new Date(now), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
+    var hit = {};
+    vals.forEach(function (row) {
+      var untouched = !(Number(row[COL.ms]) > 0) || (row[COL.status] === STATUS_LABEL.pending && row[COL.votes] === '');
+      if (untouched || !match(row)) return;
+      hit[row[COL.id] + '|' + row[COL.race]] = true;
+      if (dryRun) return;
+      row[COL.votes] = '';
+      row[COL.status] = STATUS_LABEL.pending;
+      row[COL.by] = '';
+      row[COL.time] = time;
+      row[COL.ms] = now;
+    });
+    var n = Object.keys(hit).length;
+    if (n && !dryRun) rng.setValues(vals);
+    return n;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function resetAll() {
+  var ui = SpreadsheetApp.getUi();
+  var n = resetRows_(function () { return true; }, true);
+  if (!n) { ui.alert('目前沒有任何票數，不用歸零。'); return; }
+  var res = ui.prompt('全部歸零',
+    '⚠ 目前有 ' + n + ' 筆票數（投開票所 × 選舉，含合計）。\n\n'
+    + '歸零會全部清空，所有人的手機也會跟著變成「未開票」。\n'
+    + '（萬一按錯，可用「檔案 → 版本記錄」找回。）\n\n'
+    + '要繼續，請輸入：我要清空', ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK || String(res.getResponseText()).trim() !== '我要清空') {
+    ui.alert('已取消，沒有動到任何資料。');
+    return;
+  }
+  var done = resetRows_(function () { return true; }, false);
+  ui.alert('完成，已歸零 ' + done + ' 筆。\n大家的手機約 20 秒內會自動跟著變成「未開票」。');
+}
+
+function resetOne() {
+  var ui = SpreadsheetApp.getUi();
+  var a = ui.prompt('歸零某一個投開票所',
+    '請輸入投開票所編號，例如 0015。\n（合計請輸入：ALL＝全市，D1～D4＝選舉區，V:七結里＝里）', ui.ButtonSet.OK_CANCEL);
+  if (a.getSelectedButton() !== ui.Button.OK) return;
+  var id = String(a.getResponseText()).trim();
+  if (/^\d+$/.test(id)) id = ('0000' + id).slice(-4);
+  if (!id) { ui.alert('沒有輸入編號。'); return; }
+  var b = ui.prompt('要歸零哪一項？',
+    '輸入：市長、市民代表、里長、縣長、縣議員 其中一個。\n留空 ＝ 這一所的所有項目。', ui.ButtonSet.OK_CANCEL);
+  if (b.getSelectedButton() !== ui.Button.OK) return;
+  var raceText = String(b.getResponseText()).trim();
+  var match = function (row) {
+    return String(row[COL.id]) === id && (!raceText || String(row[COL.race]).indexOf(raceText) >= 0);
+  };
+  var n = resetRows_(match, true);
+  if (!n) { ui.alert('找不到「' + id + (raceText ? ' ' + raceText : '') + '」有填過的票數。\n請確認編號、項目有沒有打對。'); return; }
+  var ok = ui.alert('確定歸零？', id + (raceText ? '　' + raceText : '　全部項目') + '，共 ' + n + ' 筆。\n歸零後所有人的手機也會跟著變成「未開票」。', ui.ButtonSet.YES_NO);
+  if (ok !== ui.Button.YES) { ui.alert('已取消，沒有動到任何資料。'); return; }
+  ui.alert('完成，已歸零 ' + resetRows_(match, false) + ' 筆。');
+}
+
 /* ---------- 彙總分頁（各候選人全市／各選區得票，用公式即時計算） ---------- */
 
 function buildSummary_(groups) {

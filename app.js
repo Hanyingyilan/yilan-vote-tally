@@ -630,7 +630,7 @@
         const k = calc(r);
         const detail = st === "pending" ? "" : sortedCands(g, r.votes || {}).map((c) => `${circ(c.no)}${esc(c.name)} ${fmt(r.votes?.[c.no] || 0)}`).join("　");
         const fl = flags[s.id];
-        const who = r?.updatedAt ? `${r.by ? esc(r.by) + "<br>" : ""}<small class="muted">${hhmm(r.updatedAt)}</small>` : "";
+        const who = r?.updatedAt && st !== "pending" ? `${r.by ? esc(r.by) + "<br>" : ""}<small class="muted">${hhmm(r.updatedAt)}</small>` : "";
         return `<tr class="${fl ? "flag" : ""}"><td>${s.id} ${esc(s.name)}<br><small class="muted">${esc(s.village)} 鄰${esc(s.neighbors)}</small>${fl ? `<span class="flagtag">⚠ ${fl.map(esc).join("；")}</span>` : ""}</td><td><span class="badge" data-s="${st}">${STATUS[st]}</span></td>
           <td class="left wrap">${detail}</td><td>${st === "pending" ? "" : fmt(k.invalid)}</td><td>${st === "pending" ? "" : fmt(k.valid)}</td><td>${st === "pending" ? "" : fmt(k.total)}</td><td>${who}</td></tr>`;
       }).join("");
@@ -825,13 +825,13 @@
       stMsg("連線中…");
       if (act === "stTest") {
         const res = await getAll();
-        stMsg(res.ok ? `連線成功，雲端目前有 ${(res.records || []).filter((r) => r.updatedAt).length} 筆已填資料。` : res.error || "連線失敗", res.ok ? "ok" : "err");
+        stMsg(res.ok ? `連線成功，雲端目前有 ${(res.records || []).filter((r) => r.updatedAt && r.status !== "pending").length} 筆已填資料。` : res.error || "連線失敗", res.ok ? "ok" : "err");
       } else if (act === "stInit") {
         if (!cur.token) return stMsg("初始化需要同步密碼", "err");
         // 防呆：雲端已有票數時，必須打字確認，避免開票夜誤按清光
         const have = await getAll();
         if (!have.ok) return stMsg(have.error || "連線失敗", "err");
-        const filled = (have.records || []).filter((r) => r.updatedAt).length;
+        const filled = (have.records || []).filter((r) => r.updatedAt && r.status !== "pending").length;
         if (filled > 0) {
           const ans = prompt(`⚠ 雲端現在已有 ${filled} 筆票數！\n初始化會把它們全部清空，而且無法復原。\n\n如果真的要清空，請輸入：我要清空`);
           if (ans === null || ans.trim() !== "我要清空") return stMsg("已取消，雲端資料沒有動。", "ok");
