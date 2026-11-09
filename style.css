@@ -374,3 +374,11 @@ dialog#pw { width: min(92vw, 460px); height: auto; max-height: 90vh; margin: aut
 dialog#pw { height: fit-content; }
 .pwform footer { grid-template-columns: 1fr 1fr; }
 .pwform .btn { font-size: 22px; padding: 8px 6px; white-space: nowrap; }
+
+/* ---------- 可疑數字提示 ---------- */
+.flagcard { border: 2px solid var(--accent); }
+.flaglist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.flaglist li { border-left: 6px solid var(--accent); padding: 8px 12px; background: var(--accent-soft); border-radius: 8px; font-size: 18px; line-height: 1.5; }
+.linkbtn { border: 0; background: none; color: var(--accent); font-weight: 700; text-decoration: underline; font-size: inherit; padding: 4px 0 4px 10px; min-height: 40px; }
+tr.flag td, tr.flag td:first-child { background: var(--accent-soft); }
+.flagtag { display: block; color: var(--accent); font-weight: 700; font-size: 15px; white-space: normal; min-width: 200px; line-height: 1.4; }

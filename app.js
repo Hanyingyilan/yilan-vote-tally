@@ -43,6 +43,14 @@
   const racesOf = (s) => (s.kind ? RACES.filter((r) => scopeHas(s, r)) : RACES.filter((r) => r.applies(s) && groupOf(r, s)));
   const scopeStations = (sc) => (sc.kind === "all" ? stations : sc.kind === "district" ? stationsOf(sc.district) : stations.filter((s) => s.village === sc.village));
 
+  /* ---------- 防呆：數字合不合理 ---------- */
+  // 依據：中選會「選舉資料庫」2014–2024 年共 12 場選舉（縣長、市長、總統、立委）的宜蘭市各里得票，
+  // 除以 2026 年名單中該里的投開票所數，推算每所有效票：平均約 570–700、單一投開票所最多 963 票（2024 總統）。
+  // 門檻 1,200 ＝ 歷年最多 × 1.25。超過只是「先問一次」，確認沒打錯仍可送出。
+  const HIST_MAX = 960;
+  const LIMIT_STATION = 1200;
+  const limitFor = (s) => (s.kind ? LIMIT_STATION * scopeStations(s).length : LIMIT_STATION);
+
   /* ---------- 小工具 ---------- */
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -128,10 +136,46 @@
     if (!raceByKey[state.settings.race]) state.settings.race = "mayor";
     ui.race = state.settings.race;
   }
+  // 找出數字可疑的投開票所：回傳 { 投開票所編號: [原因…] }
+  function flagsFor(race) {
+    const list = raceStations(race);
+    const tot = {}, stt = {};
+    for (const s of list) {
+      const r = getRec(s.id, race.key);
+      if (!r || r.status === "pending") continue;
+      tot[s.id] = calc(r).total;
+      stt[s.id] = r.status;
+    }
+    const vals = Object.values(tot).filter((v) => v > 0).sort((x, y) => x - y);
+    const med = vals.length >= 6 ? vals[Math.floor(vals.length / 2)] : null;
+    const out = {};
+    for (const s of list) {
+      const id = s.id;
+      if (!(id in tot)) continue;
+      const r = getRec(id, race.key), t = tot[id], why = [];
+      if (t > LIMIT_STATION) why.push(`投票數 ${fmt(t)} 票，超過歷年最多的一所（約 ${HIST_MAX} 票）`);
+      if (med && t > med * 2.2 && t > 400) why.push(`比其他所多很多（中間值約 ${fmt(med)} 票）`);
+      if (med && stt[id] === "done" && t < med * 0.35 && med > 300) why.push(`比其他所少很多（中間值約 ${fmt(med)} 票）`);
+      const inv = r.invalid || 0;
+      if (t >= 100 && inv / t > 0.15) why.push(`無效票偏多（${fmt(inv)} ／ ${fmt(t)}）`);
+      if (stt[id] === "done") {
+        for (const r2 of racesOf(s)) {
+          if (r2.key === race.key) continue;
+          const x = getRec(id, r2.key);
+          if (!x || x.status !== "done") continue;
+          const ref = calc(x).total;
+          if (ref >= 100 && Math.abs(t - ref) / ref > 0.35) { why.push(`和「${r2.label}」差很多（${fmt(t)} 對 ${fmt(ref)}）`); break; }
+        }
+      }
+      if (why.length) out[id] = why;
+    }
+    return out;
+  }
   function renderRaceBar() {
     $("#raceBar").innerHTML = RACES.map((r) => {
       const a = agg(r, stations);
-      return `<button type="button" data-race="${r.key}" aria-pressed="${r.key === ui.race}">${esc(r.label)}<small>${a.done}/${a.n}</small></button>`;
+      const fl = Object.keys(flagsFor(r)).length;
+      return `<button type="button" data-race="${r.key}" aria-pressed="${r.key === ui.race}">${esc(r.label)}<small>${a.done}/${a.n}${fl ? ` ⚠${fl}` : ""}</small></button>`;
     }).join("");
   }
   function setTab(tab, push = true) {
@@ -347,6 +391,28 @@
       if (d.status === "done" && d.blank > 0 && !confirm(`「${raceByKey[key].label}」還有 ${d.blank} 個欄位沒填（會當成 0），確定標示為「已完成」？`)) return false;
       todo.push([key, d]);
     }
+    // 防呆一：數字太大先確認（擋住多打一個 0）；防呆二：和同一所其他選舉差太多先確認
+    const cur = byId[id];
+    for (const [key, d] of todo) {
+      const total = Object.values(d.votes).reduce((x, y) => x + y, 0) + d.invalid;
+      const lim = limitFor(cur);
+      if (total > lim) {
+        const hist = cur.kind ? `${fmt(HIST_MAX * scopeStations(cur).length)} 票` : `${fmt(HIST_MAX)} 票`;
+        if (!confirm(`⚠ 數字很大！\n\n「${raceByKey[key].label}」投票數合計：${fmt(total)} 票\n${cur.kind ? "這個範圍" : "宜蘭市歷年最多的一個投開票所"}大約是 ${hist}。\n\n有沒有多打了一個數字？\n按「確定」＝照這個數字送出\n按「取消」＝回去修改`)) return false;
+      }
+      if (!cur.kind && d.status === "done") {
+        for (const r2 of racesOf(cur)) {
+          if (r2.key === key) continue;
+          const x = getRec(id, r2.key);
+          if (!x || x.status !== "done") continue;
+          const ref = calc(x).total;
+          if (ref >= 100 && Math.abs(total - ref) / ref > 0.35) {
+            if (!confirm(`⚠ 和別的選舉差很多！\n\n這個投開票所「${raceByKey[key].label}」：${fmt(total)} 票\n「${r2.label}」：${fmt(ref)} 票\n\n同一個投開票所，各選舉的票數通常差不多。\n按「確定」＝照這個數字送出\n按「取消」＝回去修改`)) return false;
+            break;
+          }
+        }
+      }
+    }
     const now = Date.now();
     for (const [key, d] of todo) {
       let status = d.status;
@@ -494,6 +560,13 @@
       <div class="kpi"><div class="l">無效票</div><div class="v">${fmt(all.invalid)}</div><div class="s">${pct(all.invalid, all.total)} 佔投票數</div></div>
     </div>`;
     const compare = compareCard(race);
+    const flags = flagsFor(race);
+    const flagIds = Object.keys(flags);
+    const flagCard = flagIds.length ? `<section class="card flagcard"><h2>⚠ 需要確認的投開票所<small>${flagIds.length} 所</small></h2><ul class="flaglist">${flagIds.map((id) => {
+      const s = byId[id], r = getRec(id, race.key);
+      return `<li><b>${id} ${esc(s.name)}</b>（${esc(s.village)}）<br>${flags[id].map(esc).join("；")}<br><small class="muted">${r.by ? esc(r.by) + " · " : ""}${hhmm(r.updatedAt)}</small>
+        <button type="button" class="linkbtn" data-act="fix" data-id="${id}">去修改</button></li>`;
+    }).join("")}</ul></section>` : "";
 
     let main = "";
     if (race.scope === "all") {
@@ -519,7 +592,7 @@
       const villTable = `<section class="card"><h2>各里</h2><div class="tbl-wrap"><table>
         <thead><tr><th>里</th><th>完成</th>${headCells(g)}</tr></thead><tbody>${villRows}</tbody></table></div></section>`;
       // 候選人得票放在最上面，其次才是進度與各項統計
-      main = `<div class="ov-grid"><div class="stack">${candBlock(g, all, `${esc(race.full)}・全市得票`, `${esc(progressSub(all))} · 應選 ${g.seats} 席`)}${kpis}${compare}</div><div class="stack">${distTable}${villTable}</div></div>`;
+      main = `<div class="ov-grid"><div class="stack">${candBlock(g, all, `${esc(race.full)}・全市得票`, `${esc(progressSub(all))} · 應選 ${g.seats} 席`)}${kpis}${compare}${flagCard}</div><div class="stack">${distTable}${villTable}</div></div>`;
     } else {
       const line = `<p class="sumline"><b>${esc(race.label)}</b>　已完成 ${all.done}/${all.n} 所 · 有效票 ${fmt(all.valid)} · 無效票 ${fmt(all.invalid)}</p>`;
       let blocks;
@@ -540,7 +613,7 @@
           return `<h2 class="sec-title">第${d}選舉區 <small>${villagesOf(d).length} 里</small></h2><div class="blocks small">${cards}</div>`;
         }).join("");
       }
-      main = `${blocks}${line}${compare}`;
+      main = `${blocks}${line}${compare}${flagCard}`;
     }
 
     const stRows = districtIds.map((d) => {
@@ -550,13 +623,15 @@
         const st = r?.status || "pending";
         const k = calc(r);
         const detail = st === "pending" ? "" : sortedCands(g, r.votes || {}).map((c) => `${circ(c.no)}${esc(c.name)} ${fmt(r.votes?.[c.no] || 0)}`).join("　");
-        return `<tr><td>${s.id} ${esc(s.name)}<br><small class="muted">${esc(s.village)} 鄰${esc(s.neighbors)}</small></td><td><span class="badge" data-s="${st}">${STATUS[st]}</span></td>
-          <td class="left wrap">${detail}</td><td>${st === "pending" ? "" : fmt(k.invalid)}</td><td>${st === "pending" ? "" : fmt(k.valid)}</td><td>${st === "pending" ? "" : fmt(k.total)}</td></tr>`;
+        const fl = flags[s.id];
+        const who = r?.updatedAt ? `${r.by ? esc(r.by) + "<br>" : ""}<small class="muted">${hhmm(r.updatedAt)}</small>` : "";
+        return `<tr class="${fl ? "flag" : ""}"><td>${s.id} ${esc(s.name)}<br><small class="muted">${esc(s.village)} 鄰${esc(s.neighbors)}</small>${fl ? `<span class="flagtag">⚠ ${fl.map(esc).join("；")}</span>` : ""}</td><td><span class="badge" data-s="${st}">${STATUS[st]}</span></td>
+          <td class="left wrap">${detail}</td><td>${st === "pending" ? "" : fmt(k.invalid)}</td><td>${st === "pending" ? "" : fmt(k.valid)}</td><td>${st === "pending" ? "" : fmt(k.total)}</td><td>${who}</td></tr>`;
       }).join("");
-      return rows ? `<tr class="grp"><td colspan="6">第${d}選舉區</td></tr>${rows}` : "";
+      return rows ? `<tr class="grp"><td colspan="7">第${d}選舉區</td></tr>${rows}` : "";
     }).join("");
     const stTable = `<details class="card"><summary>${esc(race.label)}・全部投開票所明細（${list.length} 所）</summary><div class="tbl-wrap"><table>
-      <thead><tr><th>投開票所</th><th>狀態</th><th class="left">各候選人得票</th><th>無效票</th><th>有效票</th><th>投票數</th></tr></thead><tbody>${stRows}</tbody></table></div></details>`;
+      <thead><tr><th>投開票所</th><th>狀態</th><th class="left">各候選人得票</th><th>無效票</th><th>有效票</th><th>投票數</th><th>填表人／時間</th></tr></thead><tbody>${stRows}</tbody></table></div></details>`;
 
     const tools = `<section class="card"><h2>匯出與備份<small>含全部選舉</small></h2><div class="tools">
       <button type="button" class="btn" data-act="csv">下載明細 CSV</button>
@@ -785,6 +860,7 @@
         return;
       }
       if (act === "askPassword") return openPasswordPrompt();
+      if (act === "fix") { ui.mode = "station"; setTab("entry"); return openEditor(t.dataset.id, ui.race); }
       if (act === "pwGo") return void submitPassword();
       if (act === "pwLater") return $("#pw").close();
       if (act === "csv") return exportCsv();
