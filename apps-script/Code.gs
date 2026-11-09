@@ -10,15 +10,16 @@
  * 讀取（GET）不需要密碼；寫入（POST）一定要密碼。
  *
  * 試算表格式（「得票明細」分頁，長表）：
- *   一列 = 一個投開票所 × 一種選舉 × 一位候選人（另有一列「無效票」），方便用樞紐分析表統計。
+ *   一列 = 一個範圍 × 一種選舉 × 一位候選人（另有一列「無效票」），方便用樞紐分析表統計。
+ *   「類型」欄：投開票所＝各所回報；合計＝直接填的全市／選舉區／里合計（和各所分開存，彙總時不重複加）。
  */
 
 var DETAIL = '得票明細';
 var SUMMARY = '彙總';
 var HEADER = ['編號', '市民代表選舉區', '里', '投開票所', '選舉', '選區／範圍', '號次', '候選人', '得票數',
-  '狀態', '選舉人數', '填表人', '更新時間', 'updatedAtMs', 'key'];
+  '狀態', '選舉人數', '填表人', '更新時間', 'updatedAtMs', 'key', '類型'];
 var COL = { id: 0, district: 1, village: 2, venue: 3, race: 4, group: 5, no: 6, name: 7, votes: 8,
-  status: 9, electors: 10, by: 11, time: 12, ms: 13, key: 14 };
+  status: 9, electors: 10, by: 11, time: 12, ms: 13, key: 14, kind: 15 };
 var STATUS_LABEL = { pending: '未開票', counting: '開票中', done: '已完成' };
 var STATUS_CODE = { '未開票': 'pending', '開票中': 'counting', '已完成': 'done' };
 var MAX_ROWS = 10000;
@@ -75,6 +76,7 @@ function getSheet_() {
     sh.setFrozenRows(1);
     sh.getRange(1, 1, 1, HEADER.length).setFontWeight('bold').setBackground('#dcefe8');
     sh.hideColumns(COL.ms + 1, 2); // updatedAtMs、key
+    sh.getRange(2, 1, MAX_ROWS, 1).setNumberFormat('@'); // 編號欄存成文字，保留 0001 的前導零
   }
   return sh;
 }
@@ -88,8 +90,8 @@ function recordRows_(r) {
   function line(no, name, votes) {
     var row = new Array(HEADER.length);
     row[COL.id] = r.id;
-    row[COL.district] = '第' + r.district + '選舉區';
-    row[COL.village] = r.village;
+    row[COL.district] = r.districtLabel || ('第' + r.district + '選舉區');
+    row[COL.village] = r.village || '';
     row[COL.venue] = r.venue;
     row[COL.race] = r.raceLabel;
     row[COL.group] = r.group;
@@ -102,6 +104,7 @@ function recordRows_(r) {
     row[COL.time] = time;
     row[COL.ms] = r.updatedAt || 0;
     row[COL.key] = r.id + '|' + r.race + '|' + no;
+    row[COL.kind] = r.kind || '投開票所';
     return row;
   }
   var rows = (r.cands || []).map(function (c) {
@@ -184,17 +187,21 @@ function buildSummary_(groups) {
   sh.clear();
   var T = "'" + DETAIL + "'!";
   function rng(c) { var L = String.fromCharCode(65 + c); return T + '$' + L + '$2:$' + L + '$' + MAX_ROWS; }
-  var out = [['選舉', '選區／範圍', '應選', '完成所數', '號次', '候選人', '政黨', '得票數', '得票率']];
+  var out = [['選舉', '選區／範圍', '應選', '完成所數', '號次', '候選人', '政黨', '各所加總', '得票率', '手動合計']];
+  var NOTSUM = rng(COL.kind) + ',"<>合計"'; // 各所加總不含手動合計列
   groups.forEach(function (g) {
-    var scope = rng(COL.race) + ',"' + g.race + '",' + rng(COL.group) + ',"' + g.group + '"';
+    var scope = rng(COL.race) + ',"' + g.race + '",' + rng(COL.group) + ',"' + g.group + '",' + NOTSUM;
     var done = '=COUNTIFS(' + scope + ',' + rng(COL.no) + ',"無效",' + rng(COL.status) + ',"已完成")'
       + '&" / "&COUNTIFS(' + scope + ',' + rng(COL.no) + ',"無效")';
     var validAll = 'SUMIFS(' + rng(COL.votes) + ',' + scope + ',' + rng(COL.no) + ',">0")';
+    var manual = rng(COL.race) + ',"' + g.race + '",' + rng(COL.group) + ',"' + g.group + '",'
+      + rng(COL.kind) + ',"合計",' + rng(COL.id) + ',"' + (g.scopeId || '') + '"';
     (g.cands || []).forEach(function (c, i) {
       var row = out.length + 1;
       out.push([g.race, g.group, g.seats, i === 0 ? done : '', c.no, c.name, c.party || '',
         '=SUMIFS(' + rng(COL.votes) + ',' + scope + ',' + rng(COL.no) + ',' + c.no + ')',
-        '=IFERROR(H' + row + '/' + validAll + ',0)']);
+        '=IFERROR(H' + row + '/' + validAll + ',0)',
+        '=SUMIFS(' + rng(COL.votes) + ',' + manual + ',' + rng(COL.no) + ',' + c.no + ')']);
     });
   });
   sh.getRange(1, 1, out.length, out[0].length).setValues(out);

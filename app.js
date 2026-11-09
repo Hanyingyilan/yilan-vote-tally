@@ -22,20 +22,26 @@
   const single = (label, seats, cands) => ({ all: { label, seats, cands } });
   const RACES = [
     { key: "mayor", label: "市長", full: "宜蘭市長", scope: "all", applies: () => true, groupOf: () => "all", groups: single("宜蘭市長", 1, C.mayor) },
-    { key: "county", label: "縣長", full: "宜蘭縣長", scope: "all", applies: () => true, groupOf: () => "all", groups: single("宜蘭縣長", 1, C.county) },
-    { key: "council", label: "縣議員", full: `宜蘭縣議員（${C.council.area}）`, scope: "all", applies: () => true, groupOf: () => "all", groups: single(C.council.area, C.council.seats, C.council.cands) },
     { key: "rep", label: "市民代表", full: "宜蘭市民代表", scope: "district", applies: () => true, groupOf: (s) => String(s.district),
       groups: Object.fromEntries(districtIds.map((d) => [String(d), { label: `第${d}選舉區`, seats: DATA.districts[d].seats, cands: C.rep[d] || [] }])) },
     { key: "chief", label: "里長", full: "宜蘭市里長", scope: "village", applies: () => true, groupOf: (s) => s.village,
       groups: Object.fromEntries(Object.entries(C.chief).map(([v, cs]) => [v, { label: v, seats: 1, cands: cs }])) },
-    { key: "plains", label: "平地原住民議員", full: `縣議員（${C.councilPlains.area}・平地原住民）`, scope: "all", applies: (s) => s.note.includes("平地原住民"), groupOf: () => "all",
-      groups: single(C.councilPlains.area + "（平地原住民）", C.councilPlains.seats, C.councilPlains.cands) },
-    { key: "mountain", label: "山地原住民議員", full: `縣議員（${C.councilMountain.area}・山地原住民）`, scope: "all", applies: (s) => s.note.includes("山地原住民"), groupOf: () => "all",
-      groups: single(C.councilMountain.area + "（山地原住民）", C.councilMountain.seats, C.councilMountain.cands) },
+    { key: "county", label: "縣長", full: "宜蘭縣長", scope: "all", applies: () => true, groupOf: () => "all", groups: single("宜蘭縣長", 1, C.county) },
+    { key: "council", label: "縣議員", full: `宜蘭縣議員（${C.council.area}）`, scope: "all", applies: () => true, groupOf: () => "all", groups: single(C.council.area, C.council.seats, C.council.cands) },
   ];
   const raceByKey = Object.fromEntries(RACES.map((r) => [r.key, r]));
   const groupOf = (race, s) => race.groups[race.groupOf(s)];
-  const racesOf = (s) => RACES.filter((r) => r.applies(s) && groupOf(r, s));
+  // 「合計」範圍：直接填整個範圍加起來的票數，和各投開票所分開存放（id：ALL、D1…D4、V:里名）
+  const SCOPES = [
+    { id: "ALL", kind: "all", name: "宜蘭市全市合計", district: null, village: null, neighbors: "", address: "", note: "" },
+    ...districtIds.map((d) => ({ id: `D${d}`, kind: "district", name: `第${d}選舉區合計`, district: d, village: null, neighbors: "", address: "", note: "" })),
+    ...districtIds.flatMap((d) => villagesOf(d).map((v) => ({ id: `V:${v}`, kind: "village", name: `${v}合計`, district: d, village: v, neighbors: "", address: "", note: "" }))),
+  ];
+  for (const sc of SCOPES) byId[sc.id] = sc;
+  // 里長只有「里」層級有合計；市民代表沒有「全市」合計；其餘選舉三種層級都有
+  const scopeHas = (sc, r) => (r.key === "chief" ? sc.kind === "village" : r.key === "rep" ? sc.kind !== "all" : true);
+  const racesOf = (s) => (s.kind ? RACES.filter((r) => scopeHas(s, r)) : RACES.filter((r) => r.applies(s) && groupOf(r, s)));
+  const scopeStations = (sc) => (sc.kind === "all" ? stations : sc.kind === "district" ? stationsOf(sc.district) : stations.filter((s) => s.village === sc.village));
 
   /* ---------- 小工具 ---------- */
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -105,7 +111,7 @@
   const raceStations = (race) => stations.filter((s) => race.applies(s));
 
   /* ---------- 介面狀態 ---------- */
-  const ui = { tab: "entry", race: "mayor", district: 0, status: "all", q: "", visible: [], editId: null, syncing: false, error: "" };
+  const ui = { tab: "entry", mode: "station", savedAt: null, race: "mayor", district: 0, status: "all", q: "", visible: [], editId: null, syncing: false, error: "" };
   const curRace = () => raceByKey[ui.race];
 
   /* ---------- 頁首／分頁／選舉切換 ---------- */
@@ -176,7 +182,42 @@
       <span class="right"><span class="badge" data-s="${st}">${STATUS[st]}</span>${st !== "pending" ? `<span class="tot">投票 ${fmt(k.total)}</span>` : ""}</span>
     </button></li>`;
   }
+  function renderMode() {
+    const total = ui.mode === "total";
+    for (const b of $$("#modeSeg button")) b.setAttribute("aria-pressed", String(b.dataset.mode === ui.mode));
+    $("#districtSeg").hidden = total;
+    $("#statusFilter").closest("label").hidden = total;
+  }
+  function scopeButton(sc) {
+    const race = curRace();
+    const r = getRec(sc.id, race.key);
+    const st = r?.status || "pending";
+    const k = calc(r);
+    const tag = sc.kind === "all" ? "全市" : sc.kind === "district" ? `${sc.district}區` : "里";
+    return `<li><button type="button" class="st" data-id="${esc(sc.id)}">
+      <span class="sid">${tag}</span>
+      <span><span class="name">${esc(sc.name)}</span>${sc.kind === "village" ? `<br><span class="sub">第${sc.district}選舉區</span>` : ""}</span>
+      <span class="right"><span class="badge" data-s="${st}">${STATUS[st]}</span>${st !== "pending" ? `<span class="tot">投票 ${fmt(k.total)}</span>` : ""}</span>
+    </button></li>`;
+  }
+  function renderTotals() {
+    const race = curRace();
+    const q = ui.q.trim();
+    const ok = (sc) => scopeHas(sc, race) && (!q || sc.name.includes(q) || (sc.village || "").includes(q));
+    ui.visible = [];
+    const html = [];
+    const top = SCOPES.filter((sc) => sc.kind !== "village" && ok(sc));
+    if (top.length) html.push(`<section class="dist"><div class="dist-head"><h2>全市與選舉區</h2></div><ul class="stations">${top.map(scopeButton).join("")}</ul></section>`);
+    for (const d of districtIds) {
+      const vs = SCOPES.filter((sc) => sc.kind === "village" && sc.district === d && ok(sc));
+      if (vs.length) html.push(`<section class="dist"><div class="dist-head"><h2>第${d}選舉區　各里</h2></div><ul class="stations">${vs.map(scopeButton).join("")}</ul></section>`);
+    }
+    const hint = `<p class="hint"><b>合計</b>是整個範圍加起來的票數（例如某個里、某個選舉區或全市）。在投開票所現場回報的人，只要到「各投開票所」填就好，<b>不用</b>再填合計；這裡是給拿得到合計數字的人用的，總覽頁會把它和各所加總並排對照。</p>`;
+    $("#list").innerHTML = hint + (html.join("") || `<p class="empty">沒有符合的項目</p>`);
+  }
   function renderList() {
+    renderMode();
+    if (ui.mode === "total") return renderTotals();
     renderSeg();
     const race = curRace();
     const shown = raceStations(race).filter((s) => (ui.district === 0 || s.district === ui.district) && matchStatus(s) && matchQ(s));
@@ -237,18 +278,21 @@
     if (!s) return;
     const rs = racesOf(s);
     ui.editId = id;
+    ui.savedAt = null;
     edDirty = false;
     edTouched = new Set();
     edRace = rs.some((r) => r.key === raceKey) ? raceKey : rs[0].key;
-    const idx = ui.visible.indexOf(id);
-    const hasNext = idx >= 0 && idx < ui.visible.length - 1;
+    const eyebrow = !s.kind ? `第${s.district}選舉區 · ${esc(s.village)}`
+      : s.kind === "all" ? "合計 · 全市" : s.kind === "district" ? `合計 · 第${s.district}選舉區` : `合計 · 第${s.district}選舉區 · ${esc(s.village)}`;
+    const title = s.kind ? esc(s.name) : `${s.id} ${esc(s.name)}`;
+    const sub = s.kind ? "這是整個範圍加起來的票數，和各投開票所的票數分開存放，不會重複加總。" : `鄰 ${esc(s.neighbors)} · ${esc(s.address)}`;
     const dlg = $("#editor");
     dlg.innerHTML = `<form class="ed" id="edForm" autocomplete="off" novalidate>
       <header>
         <div>
-          <p class="eyebrow">第${s.district}選舉區 · ${esc(s.village)}</p>
-          <h2 id="edTitle">${s.id} ${esc(s.name)}</h2>
-          <p class="note">鄰 ${esc(s.neighbors)} · ${esc(s.address)}</p>
+          <p class="eyebrow">${eyebrow}</p>
+          <h2 id="edTitle">${title}</h2>
+          <p class="note">${sub}</p>
         </div>
         <button type="button" class="icon-btn" data-act="close" aria-label="關閉">✕</button>
       </header>
@@ -256,14 +300,13 @@
         <div class="race-tabs" role="tablist" aria-label="選舉項目">
           ${rs.map((r) => { const st = getRec(id, r.key)?.status || "pending"; return `<button type="button" role="tab" data-ed-race="${r.key}" aria-selected="${r.key === edRace}"><span class="dot" data-s="${st}"></span>${esc(r.label)}</button>`; }).join("")}
         </div>
+        <div class="saved" id="savedBanner" role="status" hidden></div>
         ${rs.map((r) => racePanel(r, s)).join("")}
         <label class="slim">填表人<input type="text" data-by value="${esc(state.settings.by || "")}" placeholder="你的名字"></label>
-        ${s.note ? `<p class="note">官方備註：${esc(s.note)}</p>` : ""}
       </div>
       <footer>
-        <button type="button" class="btn" data-act="close">取消</button>
+        <button type="button" class="btn" id="edClose" data-act="close">取消</button>
         <button type="button" class="btn primary" data-act="save">儲存</button>
-        ${hasNext ? `<button type="button" class="btn primary" data-act="saveNext">儲存並下一所</button>` : ""}
       </footer>
     </form>`;
     if (!dlg.open) dlg.showModal();
@@ -315,18 +358,43 @@
       if (status === "pending" && (Object.values(d.votes).some((v) => v > 0) || d.invalid > 0)) status = "counting";
       state.records[rk(id, key)] = { id, race: key, votes: d.votes, invalid: d.invalid, electors: d.electors, status, by, updatedAt: now };
       state.dirty[rk(id, key)] = true;
+      const radio = $(`#edForm input[name="status-${key}"][value="${status}"]`);
+      if (radio) radio.checked = true;
     }
     if (by) state.settings.by = by;
     saveState();
     edDirty = false; edTouched = new Set();
+    // 儲存後留在原頁，清楚顯示「已儲存」，不自動跳到別的投開票所
+    ui.savedAt = { keys: todo.map(([k]) => k), at: now, none: todo.length === 0 };
+    for (const b of $$("[data-ed-race]")) $(".dot", b).dataset.s = getRec(id, b.dataset.edRace)?.status || "pending";
+    const close = $("#edClose");
+    if (close && todo.length) { close.textContent = "回到清單"; close.classList.add("primary"); }
     renderAll();
-    toast(todo.length ? `已儲存 ${id} ${byId[id].name}（${todo.map(([k]) => raceByKey[k].label).join("、")}）` : "沒有需要儲存的變更");
+    updateSavedBanner();
+    $("#savedBanner")?.scrollIntoView({ block: "nearest" });
     if (todo.length) syncSoon();
     return true;
   }
+  function updateSavedBanner() {
+    const b = $("#savedBanner");
+    if (!b || !ui.savedAt) return;
+    const { keys, at, none } = ui.savedAt;
+    b.hidden = false;
+    if (none) { b.dataset.state = "info"; b.textContent = "沒有新的修改，資料維持原樣。"; return; }
+    const pend = keys.filter((k) => state.dirty[rk(ui.editId, k)]);
+    let text, st = "ok";
+    if (!syncUrl()) { text = `已儲存在這支手機（${hhmm(at)}），尚未設定雲端同步`; st = "warn"; }
+    else if (pend.length && ui.error === "NO_TOKEN") { text = `已儲存在這支手機，但還沒輸入同步密碼，尚未上傳`; st = "warn"; }
+    else if (pend.length && ui.error) { text = `已儲存在這支手機，上傳失敗；連上網路後會自動補傳`; st = "warn"; }
+    else if (pend.length) { text = `已儲存（${hhmm(at)}），正在上傳到雲端…`; st = "busy"; }
+    else text = `已儲存並同步到雲端（${hhmm(state.lastSync || at)}）`;
+    b.dataset.state = st;
+    b.textContent = `✓ ${keys.map((k) => raceByKey[k].label).join("、")}：${text}`;
+  }
   function closeEditor(force = false) {
-    if (!force && edDirty && !confirm("這一所有未儲存的修改，確定放棄？")) return;
+    if (!force && edDirty && !confirm("這裡有未儲存的修改，確定放棄？")) return;
     edDirty = false;
+    ui.savedAt = null;
     $("#editor").close();
   }
 
@@ -361,6 +429,30 @@
   }
   const progressSub = (a) => `完成 ${a.done}/${a.n} 所${a.counting ? ` · 開票中 ${a.counting}` : ""}`;
 
+  // 手動合計 vs 各投開票所加總
+  function compareCard(race) {
+    const rows = [];
+    for (const sc of SCOPES) {
+      if (!scopeHas(sc, race)) continue;
+      const r = getRec(sc.id, race.key);
+      if (!r || r.status === "pending") continue;
+      const g = groupOf(race, sc);
+      const a = agg(race, scopeStations(sc));
+      let diff = false;
+      const parts = sortedCands(g, r.votes || {}).map((c) => {
+        const m = r.votes?.[c.no] || 0, s2 = a.votes[c.no] || 0;
+        if (m !== s2) diff = true;
+        return `<span class="cmp">${circ(c.no)}${esc(c.name)} <b>${fmt(m)}</b> ／ ${fmt(s2)}${m !== s2 ? `<em>差 ${m - s2 > 0 ? "+" : ""}${fmt(m - s2)}</em>` : ""}</span>`;
+      });
+      rows.push(`<tr><td>${esc(sc.name)}<br><small class="muted">${r.by ? esc(r.by) + " · " : ""}${hhmm(r.updatedAt)}</small></td>
+        <td><span class="badge" data-s="${r.status}">${STATUS[r.status]}</span></td><td class="left wrap">${parts.join("")}</td>
+        <td>${diff ? `<span class="diff">有差異</span>` : "一致"}</td></tr>`);
+    }
+    if (!rows.length) return "";
+    return `<section class="card"><h2>手動合計對照<small>手動填的合計 ／ 各投開票所加總</small></h2><div class="tbl-wrap"><table>
+      <thead><tr><th>範圍</th><th>狀態</th><th class="left">各候選人（合計 ／ 加總）</th><th>比對</th></tr></thead><tbody>${rows.join("")}</tbody></table></div></section>`;
+  }
+
   function renderOverview() {
     const race = curRace();
     const list = raceStations(race);
@@ -371,6 +463,7 @@
       <div class="kpi"><div class="l">無效票</div><div class="v">${fmt(all.invalid)}</div><div class="s">${pct(all.invalid, all.total)} 佔投票數</div></div>
       <div class="kpi"><div class="l">投票率</div><div class="v">${all.eSum > 0 ? pct(all.tSum, all.eSum) : "–"}</div><div class="s">${all.eSum > 0 ? "依已填選舉人數的已完成所" : "尚未填選舉人數"}</div></div>
     </div>`;
+    const compare = compareCard(race);
 
     let main = "";
     if (race.scope === "all") {
@@ -395,24 +488,29 @@
       }).join("");
       const villTable = `<section class="card"><h2>各里</h2><div class="tbl-wrap"><table>
         <thead><tr><th>里</th><th>完成</th>${headCells(g)}</tr></thead><tbody>${villRows}</tbody></table></div></section>`;
-      main = `<div class="ov-grid"><div class="stack">${candBlock(g, all, `${esc(race.full)}・全市得票`, `${esc(progressSub(all))} · 應選 ${g.seats} 席`)}</div><div class="stack">${distTable}${villTable}</div></div>`;
-    } else if (race.scope === "district") {
-      main = `<div class="blocks">${districtIds.map((d) => {
-        const g = race.groups[String(d)];
-        const l = stationsOf(d);
-        const a = agg(race, l);
-        return candBlock(g, a, `第${d}選舉區`, `${esc(progressSub(a))} · 應選 ${g.seats} 席`);
-      }).join("")}</div>`;
+      // 候選人得票放在最上面，其次才是進度與各項統計
+      main = `<div class="ov-grid"><div class="stack">${candBlock(g, all, `${esc(race.full)}・全市得票`, `${esc(progressSub(all))} · 應選 ${g.seats} 席`)}${kpis}${compare}</div><div class="stack">${distTable}${villTable}</div></div>`;
     } else {
-      main = districtIds.map((d) => {
-        const blocks = villagesOf(d).map((v) => {
-          const g = race.groups[v];
-          if (!g) return "";
-          const a = agg(race, stations.filter((s) => s.village === v));
-          return candBlock(g, a, esc(v), esc(progressSub(a)), true);
+      const line = `<p class="sumline"><b>${esc(race.label)}</b>　已完成 ${all.done}/${all.n} 所 · 有效票 ${fmt(all.valid)} · 無效票 ${fmt(all.invalid)}${all.eSum > 0 ? ` · 投票率 ${pct(all.tSum, all.eSum)}` : ""}</p>`;
+      let blocks;
+      if (race.scope === "district") {
+        blocks = `<div class="blocks">${districtIds.map((d) => {
+          const g = race.groups[String(d)];
+          const a = agg(race, stationsOf(d));
+          return candBlock(g, a, `第${d}選舉區`, `${esc(progressSub(a))} · 應選 ${g.seats} 席`);
+        }).join("")}</div>`;
+      } else {
+        blocks = districtIds.map((d) => {
+          const cards = villagesOf(d).map((v) => {
+            const g = race.groups[v];
+            if (!g) return "";
+            const a = agg(race, stations.filter((s) => s.village === v));
+            return candBlock(g, a, esc(v), esc(progressSub(a)), true);
+          }).join("");
+          return `<h2 class="sec-title">第${d}選舉區 <small>${villagesOf(d).length} 里</small></h2><div class="blocks small">${cards}</div>`;
         }).join("");
-        return `<h2 class="sec-title">第${d}選舉區 <small>${villagesOf(d).length} 里</small></h2><div class="blocks small">${blocks}</div>`;
-      }).join("");
+      }
+      main = `${blocks}${line}${compare}`;
     }
 
     const stRows = districtIds.map((d) => {
@@ -437,7 +535,7 @@
       <button type="button" class="btn" data-act="print">列印 / 存成 PDF</button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </div></section>`;
-    $("#overviewRoot").innerHTML = `<div class="ov">${kpis}${main}${stTable}${tools}</div>`;
+    $("#overviewRoot").innerHTML = `<div class="ov">${main}${stTable}${tools}</div>`;
   }
 
   /* ---------- 匯出／匯入 ---------- */
@@ -453,18 +551,18 @@
   const csvCell = (v) => { const t = String(v ?? ""); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
   const stamp = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
   function exportCsv() {
-    // 長表格式（一列＝一個投開票所×一種選舉×一位候選人），方便之後用樞紐分析做統計
-    const head = ["編號", "市民代表選舉區", "里", "鄰別", "投開票所", "選舉", "選區／範圍", "號次", "候選人", "政黨", "得票數", "狀態", "選舉人數", "填表人", "更新時間"];
+    // 長表格式（一列＝一個範圍×一種選舉×一位候選人），方便之後用樞紐分析做統計；「類型」欄區分投開票所與手動合計
+    const head = ["編號", "市民代表選舉區", "里", "鄰別", "投開票所", "選舉", "選區／範圍", "號次", "候選人", "政黨", "得票數", "狀態", "選舉人數", "填表人", "更新時間", "類型"];
     const rows = [];
-    for (const s of stations) for (const race of racesOf(s)) {
+    for (const s of [...stations, ...SCOPES]) for (const race of racesOf(s)) {
       const g = groupOf(race, s);
       const r = getRec(s.id, race.key);
       const st = r?.status || "pending";
-      const common = [s.id, `第${s.district}選舉區`, s.village, s.neighbors, s.name, race.full, g.label];
-      const tail = [STATUS[st]];
-      const meta = [r?.electors ?? "", r?.by || "", r?.updatedAt ? new Date(r.updatedAt).toLocaleString("zh-TW", { hour12: false }) : ""];
-      for (const c of g.cands) rows.push([...common, c.no, c.name, c.party, st === "pending" ? "" : r.votes?.[c.no] || 0, ...tail, ...meta]);
-      rows.push([...common, "無效", "無效票", "", st === "pending" ? "" : r.invalid || 0, ...tail, ...meta]);
+      const dist = s.kind === "all" ? "全市" : `第${s.district}選舉區`;
+      const common = [s.id, dist, s.village || "", s.neighbors || "", s.kind ? `【合計】${s.name}` : s.name, race.full, g.label];
+      const meta = [STATUS[st], r?.electors ?? "", r?.by || "", r?.updatedAt ? new Date(r.updatedAt).toLocaleString("zh-TW", { hour12: false }) : "", s.kind ? "合計" : "投開票所"];
+      for (const c of g.cands) rows.push([...common, c.no, c.name, c.party, st === "pending" ? "" : r.votes?.[c.no] || 0, ...meta]);
+      rows.push([...common, "無效", "無效票", "", st === "pending" ? "" : r.invalid || 0, ...meta]);
     }
     download(`宜蘭市開票明細_${stamp()}.csv`, "﻿" + [head, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n"), "text/csv;charset=utf-8");
   }
@@ -487,9 +585,9 @@
   /* ---------- 同步（Google Apps Script） ---------- */
   const syncUrl = () => (state.settings.url || CFG.syncUrl || "").trim();
   function normalize(raw) {
-    const id = String(raw.id).padStart(4, "0");
+    const id = /^\d+$/.test(String(raw.id)) ? String(raw.id).padStart(4, "0") : String(raw.id);
     const s = byId[id], race = raceByKey[raw.race];
-    if (!s || !race || !race.applies(s)) return null;
+    if (!s || !race || !racesOf(s).includes(race)) return null;
     const g = groupOf(race, s);
     if (!g) return null;
     const votes = {};
@@ -514,7 +612,8 @@
   }
   function wire(rec) {
     const s = byId[rec.id], race = raceByKey[rec.race], g = groupOf(race, s);
-    return { ...rec, raceLabel: race.full, group: g.label, district: s.district, village: s.village, venue: `${s.id} ${s.name}`, neighbors: s.neighbors,
+    return { ...rec, raceLabel: race.full, group: g.label, district: s.district, districtLabel: s.kind === "all" ? "全市" : `第${s.district}選舉區`,
+      village: s.village || "", venue: s.kind ? `【合計】${s.name}` : `${s.id} ${s.name}`, neighbors: s.neighbors || "", kind: s.kind ? "合計" : "投開票所",
       cands: g.cands.map((c) => ({ no: c.no, name: c.name })) };
   }
   async function post(payload) {
@@ -563,6 +662,7 @@
     chip.textContent = text;
     chip.dataset.state = st;
     chip.title = ui.error && ui.error !== "NO_TOKEN" ? ui.error : "";
+    updateSavedBanner();
   }
 
   /* ---------- 設定視窗 ---------- */
@@ -618,7 +718,8 @@
         for (const s of stations) for (const race of racesOf(s)) {
           records.push(wire({ id: s.id, race: race.key, votes: {}, invalid: 0, electors: null, status: "pending", by: "", updatedAt: 0 }));
         }
-        const res = await post({ action: "init", token: cur.token, records, summary: RACES.flatMap((r) => Object.values(r.groups).map((g) => ({ race: r.full, group: g.label, seats: g.seats, cands: g.cands.map((c) => ({ no: c.no, name: c.name, party: c.party })) }))) });
+        const res = await post({ action: "init", token: cur.token, records, summary: RACES.flatMap((r) => Object.entries(r.groups).map(([key, g]) => ({ race: r.full, group: g.label, seats: g.seats,
+          scopeId: r.scope === "all" ? "ALL" : r.scope === "district" ? `D${key}` : `V:${key}`, cands: g.cands.map((c) => ({ no: c.no, name: c.name, party: c.party })) }))) });
         stMsg(res.ok ? `已建立 ${res.rows} 列明細與「彙總」分頁。` : res.error || "初始化失敗", res.ok ? "ok" : "err");
       }
     } catch (e) {
@@ -639,18 +740,14 @@
       if (t.closest(".tabs") && t.dataset.tab) return setTab(t.dataset.tab);
       if (t.closest("#raceBar")) return setRace(t.dataset.race);
       if (t.dataset.edRace) return switchEdRace(t.dataset.edRace);
+      if (t.closest("#modeSeg")) { ui.mode = t.dataset.mode; return renderList(); }
       if (t.closest("#districtSeg")) { ui.district = Number(t.dataset.d); return renderList(); }
       if (t.classList.contains("st")) return openEditor(t.dataset.id, ui.race);
       if (t.id === "btnSettings" || t.id === "syncChip") return openSettings();
       const act = t.dataset.act;
       if (!act) return;
       if (act === "close") return closeEditor();
-      if (act === "save") return void (saveEditor() && closeEditor(true));
-      if (act === "saveNext") {
-        const next = ui.visible[ui.visible.indexOf(ui.editId) + 1];
-        if (saveEditor() && next) openEditor(next, ui.race);
-        return;
-      }
+      if (act === "save") return void saveEditor();
       if (act === "csv") return exportCsv();
       if (act === "json") return exportJson();
       if (act === "import") return $("#importFile").click();

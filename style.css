@@ -325,3 +325,21 @@ tr.sum td { border-top-color: var(--accent); }
 }
 
 .top .chip { font-size: 16px; padding: 6px 10px; }
+
+/* ---------- 合計填寫、儲存提示、手動合計對照 ---------- */
+.mode { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.mode button { border: 2px solid var(--ink); background: var(--surface); border-radius: 10px; min-height: 48px; font-weight: 700; }
+.mode button[aria-pressed="true"] { background: var(--ink); color: var(--gold); }
+.hint { background: var(--surface-2); border-left: 6px solid var(--gold); border-radius: 8px; padding: 10px 14px; margin: 12px 0 4px; font-size: 18px; line-height: 1.5; }
+.saved { position: sticky; top: 52px; z-index: 2; border-radius: 10px; padding: 10px 14px; font-weight: 700; font-size: 18px; line-height: 1.4; background: var(--done-soft); color: var(--done); border: 2px solid var(--done); }
+.saved[data-state="warn"] { background: var(--counting-soft); color: var(--counting); border-color: var(--gold); }
+.saved[data-state="busy"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.saved[data-state="info"] { background: var(--surface-2); color: var(--muted); border-color: var(--line); }
+.saved[hidden] { display: none; }
+.sumline { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 18px; }
+.cmp { display: block; padding: 2px 0; }
+.cmp em { color: var(--danger); font-style: normal; font-weight: 700; margin-left: 8px; }
+.diff { color: var(--danger); font-weight: 700; }
+@media (min-width: 900px) {
+  .mode { margin: 0; min-width: 260px; }
+}
