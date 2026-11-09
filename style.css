@@ -1,39 +1,30 @@
-/* 手機優先；≥900px 變成電腦版總覽排版 */
+/* 手機優先；≥900px 變成電腦版總覽排版
+ * 風格沿用「林國漳 找政見」的紅金海報風：米黃底、深紅主色、金色點綴、襯線粗體標題、圓圈號次 */
 :root {
-  --bg: #f4f3ee;
+  --bg: #fff6da;
   --surface: #ffffff;
-  --surface-2: #eceae3;
-  --ink: #1a1f1c;
-  --muted: #5c645e;
-  --line: #d9d6cc;
-  --accent: #0f6b57;
+  --surface-2: #fbe9b6;
+  --ink: #1b1b18;
+  --muted: #5c5646;
+  --line: #e8d9a8;
+  --accent: #a63a35;
   --accent-ink: #ffffff;
-  --accent-soft: #dcefe8;
+  --accent-soft: #f6ddd9;
+  --gold: #e0c85c;
   --done: #1d7a3e;
   --done-soft: #dcf1e2;
-  --counting: #8a5a00;
-  --counting-soft: #fbecc8;
-  --pending: #5c645e;
-  --pending-soft: #e8e6de;
+  --counting: #7a5a00;
+  --counting-soft: #fbe9b6;
+  --pending: #5c5646;
+  --pending-soft: #f0e6c4;
   --danger: #b3261e;
-  --bar: #9fb8af;
+  --bar: #d9c98a;
   --radius: 12px;
   --gutter: 16px;
   --font: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #121614; --surface: #1b211e; --surface-2: #252c28; --ink: #ecefec; --muted: #9aa49d;
-    --line: #333b36; --accent: #4fc3a1; --accent-ink: #08241c; --accent-soft: #1c3a31;
-    --done: #6fd68f; --done-soft: #1d3a27; --counting: #f0bf62; --counting-soft: #3b2f12;
-    --pending: #9aa49d; --pending-soft: #2a312d; --danger: #ff8a80; --bar: #3d5a4f;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #121614; --surface: #1b211e; --surface-2: #252c28; --ink: #ecefec; --muted: #9aa49d;
-  --line: #333b36; --accent: #4fc3a1; --accent-ink: #08241c; --accent-soft: #1c3a31;
-  --done: #6fd68f; --done-soft: #1d3a27; --counting: #f0bf62; --counting-soft: #3b2f12;
-  --pending: #9aa49d; --pending-soft: #2a312d; --danger: #ff8a80; --bar: #3d5a4f;
+  --serif: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
+  --hand: "Iansui", "PingFang TC", "Noto Sans TC", sans-serif;
+  color-scheme: light;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -294,3 +285,42 @@ details.card[open] summary { margin-bottom: 10px; }
   .card, .kpi { break-inside: avoid; }
   details.card:not([open]) > * { display: none; }
 }
+
+
+/* ---------- 紅金海報風（沿用「林國漳 找政見」） ---------- */
+h1, h2, .dist-head h2, .sec-title, .kpi .v, .panel-title, .ed h2, .calc dd { font-family: var(--serif); font-weight: 900; }
+.top { background: var(--accent); color: #fff; border-bottom: 8px solid var(--gold); }
+.brand h1 { color: #fff; font-family: var(--serif); font-weight: 900; }
+.brand h1 .c1 { background: var(--gold); color: var(--accent); padding: 0 6px; margin-right: 4px; border-radius: 4px; }
+.brand p { font-family: var(--hand); color: rgba(255, 255, 255, .9); }
+.sticker { display: inline-block; background: var(--ink); color: var(--gold); border-radius: 999px; padding: 2px 14px; font-family: var(--serif); font-weight: 900; margin-right: 8px; }
+.chip { background: var(--ink); color: var(--gold); border-color: var(--ink); font-weight: 700; }
+.chip[data-state="ok"] { background: var(--gold); color: var(--ink); border-color: var(--gold); }
+.chip[data-state="busy"] { background: #fff; color: var(--accent); border-color: #fff; }
+.chip[data-state="warn"] { background: #fff; color: var(--accent); border-color: #fff; }
+.top .icon-btn { color: #fff; background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .85); }
+.dist-head { border-bottom: 2px solid var(--gold); }
+.dist-head h2, .sec-title { border-left: 10px solid var(--accent); padding-left: 12px; line-height: 1.2; }
+.sec-title { border-bottom: 2px solid var(--gold); }
+.racebar button[aria-pressed="true"], .race-tabs button[aria-selected="true"] { background: var(--ink); color: var(--gold); border-color: var(--ink); }
+.racebar button[aria-pressed="true"] small { color: var(--gold); opacity: .9; }
+.st .sid { background: var(--surface-2); color: var(--ink); }
+.field .f-no, .cand-row .f-no { border-radius: 50%; background: var(--accent); color: var(--gold); }
+.cand-row.lead .track i { background: var(--accent); }
+.lead-tag { background: var(--gold); color: var(--ink); }
+.kpi .v { color: var(--accent); }
+.kpi, .card, .st { border-color: var(--line); }
+.card > h2 { font-family: var(--serif); }
+tr.grp td, tr.grp td:first-child { background: var(--surface-2); }
+tr.sum td { border-top-color: var(--accent); }
+.calc div { background: var(--surface-2); }
+
+.circ { font-size: 1.4em; line-height: 1; color: var(--accent); font-weight: 700; }
+
+@media (min-width: 900px) {
+  .tabs { background: transparent; }
+  .tabs button { color: rgba(255, 255, 255, .9); }
+  .tabs button[aria-selected="true"] { color: var(--gold); border-bottom-color: var(--gold); }
+}
+
+.top .chip { font-size: 16px; padding: 6px 10px; }

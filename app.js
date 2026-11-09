@@ -54,6 +54,14 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
   }
+  // 號次一律用圓圈數字（①②…），不寫「1 號」
+  const circ = (n) => {
+    n = Number(n);
+    if (n >= 1 && n <= 20) return String.fromCharCode(0x2460 + n - 1);
+    if (n >= 21 && n <= 35) return String.fromCharCode(0x3251 + n - 21);
+    if (n >= 36 && n <= 50) return String.fromCharCode(0x32b1 + n - 36);
+    return `(${n})`;
+  };
   const partyTag = (c) => (c.party ? `<small>${esc(c.party)}</small>` : "");
 
   /* ---------- 狀態（localStorage） ---------- */
@@ -100,8 +108,11 @@
 
   /* ---------- 頁首／分頁／選舉切換 ---------- */
   function initHeader() {
-    $("#title").textContent = CFG.title || "宜蘭市開票統計";
-    $("#subtitle").textContent = `${CFG.electionDate || ""} · ${stations.length} 個投開票所 · ${RACES.length} 種選舉`;
+    const title = CFG.title || "宜蘭市開票統計";
+    $("#title").innerHTML = `<span class="c1">${esc(title.slice(0, 3))}</span>${esc(title.slice(3))}`;
+    const days = Math.ceil((new Date(`${CFG.electionDate}T00:00:00+08:00`) - Date.now()) / 86400000);
+    const sticker = days > 0 ? `<span class="sticker">距離投票日 ${days} 天</span>` : days === 0 ? `<span class="sticker">今天投票</span>` : "";
+    $("#subtitle").innerHTML = `${sticker}${esc(CFG.electionDate || "")} · ${stations.length} 個投開票所 · ${RACES.length} 種選舉`;
     $("#source").textContent = "資料來源：" + DATA.source + "；" + C.source;
     document.title = CFG.title || "宜蘭市開票統計";
     const setTop = () => document.documentElement.style.setProperty("--top-h", $(".top").offsetHeight + "px");
@@ -255,11 +266,13 @@
     </form>`;
     if (!dlg.open) dlg.showModal();
     $$(".panel", dlg).forEach(updateCalc);
+    $(`[data-ed-race="${edRace}"]`, dlg)?.scrollIntoView({ inline: "center", block: "nearest" });
   }
   function switchEdRace(key) {
     edRace = key;
     for (const b of $$("[data-ed-race]")) b.setAttribute("aria-selected", String(b.dataset.edRace === key));
     for (const p of $$("#edForm .panel")) p.hidden = p.dataset.race !== key;
+    $(`[data-ed-race="${key}"]`)?.scrollIntoView({ inline: "center", block: "nearest" });
   }
   function readPanel(panel) {
     const votes = {};
@@ -342,7 +355,7 @@
     return g.cands.map((c) => `<td>${fmt(a.votes[c.no] || 0)}</td>`).join("") + `<td>${fmt(a.invalid)}</td><td>${fmt(a.valid)}</td><td>${fmt(a.total)}</td>`;
   }
   function headCells(g) {
-    return g.cands.map((c) => `<th>${esc(c.no)}號<br>${esc(c.name)}</th>`).join("") + `<th>無效票</th><th>有效票</th><th>投票數</th>`;
+    return g.cands.map((c) => `<th><span class="circ">${circ(c.no)}</span><br>${esc(c.name)}</th>`).join("") + `<th>無效票</th><th>有效票</th><th>投票數</th>`;
   }
   const progressSub = (a) => `完成 ${a.done}/${a.n} 所${a.counting ? ` · 開票中 ${a.counting}` : ""}`;
 
@@ -406,7 +419,7 @@
         const g = groupOf(race, s);
         const st = r?.status || "pending";
         const k = calc(r);
-        const detail = st === "pending" ? "" : sortedCands(g, r.votes || {}).map((c) => `${c.no}號${esc(c.name)} ${fmt(r.votes?.[c.no] || 0)}`).join("　");
+        const detail = st === "pending" ? "" : sortedCands(g, r.votes || {}).map((c) => `${circ(c.no)}${esc(c.name)} ${fmt(r.votes?.[c.no] || 0)}`).join("　");
         return `<tr><td>${s.id} ${esc(s.name)}<br><small class="muted">${esc(s.village)} 鄰${esc(s.neighbors)}</small></td><td><span class="badge" data-s="${st}">${STATUS[st]}</span></td>
           <td class="left wrap">${detail}</td><td>${st === "pending" ? "" : fmt(k.invalid)}</td><td>${st === "pending" ? "" : fmt(k.valid)}</td><td>${st === "pending" ? "" : fmt(k.total)}</td></tr>`;
       }).join("");
