@@ -154,6 +154,29 @@
   function saveState() {
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
   }
+  // 專屬連結：網址結尾帶 #k=密碼（負責人私訊給每位回報員）。點開就記住密碼，不用自己打。
+  function loginFromLink() {
+    const m = location.hash.match(/(?:^#|&)k=([^&]+)/) || location.search.match(/[?&]k=([^&]+)/);
+    if (!m) return false;
+    let k = "";
+    try { k = decodeURIComponent(m[1]).trim(); } catch (_) { /* 連結被截斷 */ }
+    // 馬上把密碼從網址列拿掉，截圖或轉貼網址時才不會外流
+    try { history.replaceState(null, "", location.pathname); } catch (_) { /* ignore */ }
+    if (!k) return false;
+    state.settings.token = k;
+    saveState();
+    return true;
+  }
+  function linkResult() {
+    if (ui.tokenBad) {
+      state.settings.token = "";
+      ui.tokenBad = false;
+      saveState(); renderChip();
+      ask({ title: "這個連結不能用了", html: `<p>連結可能已經停用，或是複製時少了幾個字。</p><p>請向負責人要新的連結。</p>`, ok: "知道了", cancel: "關閉" });
+    } else if (!ui.error) {
+      toast(state.settings.by ? `${state.settings.by}，可以開始回報了` : "已登入，可以開始回報了");
+    }
+  }
 
   /* ---------- 計算 ---------- */
   function calc(rec) {
@@ -179,7 +202,7 @@
   const raceStations = (race) => stations.filter((s) => race.applies(s));
 
   /* ---------- 介面狀態 ---------- */
-  const ui = { tab: "entry", mode: "station", savedAt: null, race: "mayor", district: 0, status: "all", q: "", visible: [], editId: null, syncing: false, error: "" };
+  const ui = { tab: "entry", mode: "station", savedAt: null, race: "mayor", district: 0, status: "all", q: "", visible: [], editId: null, syncing: false, error: "", tokenBad: false };
   const curRace = () => raceByKey[ui.race];
 
   /* ---------- 頁首／分頁／選舉切換 ---------- */
@@ -336,7 +359,7 @@
         if (!rows.length) continue;
         rows.forEach((s) => ui.visible.push(s.id));
         const g = race.scope === "village" ? race.groups[v] : null;
-        groups.push(`<div class="village"><h3>${esc(v)} <small>${rows.length} 所${g ? `　候選人：${g.cands.map((c) => esc(c.name)).join("、")}${g.cands.length === 1 ? "（同額競選）" : ""}` : ""}</small></h3><ul class="stations">${rows.map(stationButton).join("")}</ul></div>`);
+        groups.push(`<div class="village"><h3>${esc(v)} <small>${rows.length} 所${g ? `　候選人：${g.cands.map((c) => esc(c.name)).join("、")}${g.cands.length === 1 ? "（同額競選）" : ""}` : ""}</small></h3><ul class="stations">${rows.map((s) => stationButton(s)).join("")}</ul></div>`);
       }
       if (!groups.length) continue;
       html.push(`<section class="dist">
@@ -565,7 +588,8 @@
     const needToken = !!syncUrl() && !state.settings.token;
     if (!syncUrl()) show("warn", `⚠ <b>還沒送出！</b>這支手機沒有連到雲端。`);
     else if (pend.length && needToken) show("warn", `⚠ <b>還沒送出！</b>請輸入同步密碼，票數才會送出。`, btn("輸入同步密碼"));
-    else if (pend.length && ui.error) show("warn", `⚠ <b>還沒送出！</b>網路不通，或密碼不對。票數還在手機裡，不用重填。`, btn("重新輸入同步密碼"));
+    else if (pend.length && (ui.tokenBad || /密碼/.test(ui.error))) show("warn", `⚠ <b>還沒送出！</b>密碼不對或已停用，請聯絡負責人。票數還在手機裡，不用重填。`, btn("重新輸入同步密碼"));
+    else if (pend.length && ui.error) show("warn", `⚠ <b>還沒送出！</b>網路不通。票數還在手機裡，有網路時會自動補傳，不用重填。`, btn("重新輸入同步密碼"));
     else if (pend.length) show("busy", `⏳ <b>傳送中…請稍等</b>`);
     else show("ok", `<span class="big">✅ 已送出！</span><br>票數已傳到雲端<small>（${names}）</small>`);
   }
@@ -842,10 +866,12 @@
   }
   async function getAll() {
     // 有密碼：用帶密碼的讀取，才拿得到填表人名字。密碼不對或後端還是舊版，就退回公開讀取。
+    ui.tokenBad = false;
     if (state.settings.token) {
       try {
         const full = await post({ action: "read", token: state.settings.token });
         if (full && full.ok) return full;
+        if (full && /密碼/.test(full.error || "")) ui.tokenBad = true; // 密碼不對，或這個人被停用了
       } catch (_) { /* 退回公開讀取 */ }
     }
     const res = await fetch(syncUrl() + (syncUrl().includes("?") ? "&" : "?") + "action=all&t=" + Date.now(), { redirect: "follow" });
@@ -865,6 +891,7 @@
       }
       const res = await getAll();
       if (!res.ok) throw new Error(res.error || "讀取失敗");
+      if (res.who) state.settings.by = String(res.who); // 用自己的專屬密碼：名字以負責人名單上的為準
       const n = mergeRemote(res.records || []);
       state.lastSync = Date.now();
       if (n) renderAll();
@@ -884,12 +911,13 @@
     if (!syncUrl()) { text = pending ? `⚠ ${pending} 筆還沒送出` : "未連雲端"; st = "warn"; }
     else if (ui.syncing && (pending || !state.lastSync)) { text = pending ? "傳送中…" : "更新中…"; st = "busy"; } // 背景定時更新時不閃爍
     else if (noToken) { text = pending ? `⚠ ${pending} 筆還沒送出` : "未輸入密碼"; st = pending ? "warn" : ""; }
+    else if (ui.tokenBad) { text = pending ? `⚠ ${pending} 筆還沒送出` : "⚠ 密碼失效"; st = "warn"; }
     else if (ui.error) { text = `⚠ 連線失敗${pending ? `，${pending} 筆還沒送出` : ""}`; st = "warn"; }
     else if (pending) { text = `傳送中…（${pending} 筆）`; st = "busy"; }
     else { text = state.lastSync ? `✓ 已同步 ${hhmm(state.lastSync)}` : "已連線"; st = "ok"; }
     chip.textContent = text;
     chip.dataset.state = st;
-    chip.title = noToken ? "這支手機還沒輸入同步密碼，只能查看，填的票不會送到雲端。點這裡輸入。" : ui.error ? ui.error : "";
+    chip.title = noToken ? "這支手機還沒輸入同步密碼，只能查看，填的票不會送到雲端。點這裡輸入。" : ui.tokenBad ? "這支手機的密碼不對或已停用，填的票送不出去。請聯絡負責人。" : ui.error ? ui.error : "";
     updateSavedBanner();
   }
 
@@ -1063,11 +1091,12 @@
 
   /* ---------- 啟動 ---------- */
   loadState();
+  const viaLink = loginFromLink();
   polyfillDialogs();
   initHeader();
   bind();
   window.__tallyReady = true; // index.html 用它判斷程式有沒有成功啟動（太舊的瀏覽器會顯示提示）
   const h = location.hash.slice(1);
   setTab(h === "entry" || h === "overview" ? h : matchMedia("(min-width: 900px)").matches ? "overview" : "entry", false);
-  if (syncUrl()) syncNow();
+  if (syncUrl()) syncNow().then(() => { if (viaLink) linkResult(); });
 })();

@@ -4,10 +4,16 @@
  *
  * 部署方式見專案根目錄 README.md。重點：
  *  1. 在試算表裡 擴充功能 → Apps Script，貼上這份程式碼。
- *  2. 專案設定 → 指令碼屬性，新增 TOKEN = 你自訂的同步密碼（填表人要輸入）。
+ *  2. 專案設定 → 指令碼屬性，新增 TOKEN = 你自訂的密碼（管理員密碼；沒有回報員名單時大家共用這一組）。
  *  3. 部署 → 新增部署作業 → 網頁應用程式：執行身分「我」，存取權「任何人」。
  *
  * 讀取（GET）不需要密碼；寫入（POST）一定要密碼。
+ * 密碼有兩種：
+ *   - 管理員密碼：指令碼屬性的 TOKEN。什麼都能做，只給負責人自己。
+ *   - 回報員密碼：「回報員」分頁裡每人一組（選單「開票工具 → 回報員名單」會自動產生）。
+ *     只能回報票數；在名單上打勾「停用」就立刻失效，不影響其他人。
+ *   沒有「回報員」分頁時，就只有 TOKEN 一組密碼（和以前一樣）。
+ * 蓋掉別人（或自己）填過的數字時，改之前的數字會記在「修改記錄」分頁，被亂改可以照著改回來。
  * 填表人的名字不公開：不帶密碼的讀取（GET）拿不到名字；帶密碼的讀取（POST action=read）才有。
  * 讀取結果會快取 15 秒（有人寫入或歸零時立刻清掉），很多人同時看統計頁也不會把後端擠爆。
  *
@@ -25,6 +31,13 @@ var COL = { id: 0, district: 1, village: 2, venue: 3, race: 4, group: 5, no: 6, 
 var STATUS_LABEL = { pending: '未開票', counting: '開票中', done: '已完成' };
 var STATUS_CODE = { '未開票': 'pending', '開票中': 'counting', '已完成': 'done' };
 var MAX_ROWS = 10000;
+var ROSTER = '回報員';
+var ROSTER_HEADER = ['名字', '密碼', '停用（打勾＝不能再送）', '專屬連結（傳給本人，點一下就能回報）'];
+var ROSTER_SEC = 30;     // 名單快取秒數（在名單分頁改東西會立刻清掉快取）
+var PASS_MIN = 6;        // 回報員密碼至少幾個字（太短容易被猜到，不會生效）
+var LOG = '修改記錄';
+var LOG_HEADER = ['時間', '誰送的', '編號', '投開票所', '選舉', '改之前', '改之後', '原本是誰填的', '原本的時間'];
+var SITE_URL = 'https://hanyingyilan.github.io/yilan-vote-tally/'; // 專屬連結用的網站網址
 var CACHE_SEC = 15;      // 讀取結果快取秒數
 var CACHE_CHUNK = 30000; // 快取每段的字數（CacheService 單筆上限 100KB，中文一個字最多 3 bytes）
 
@@ -64,20 +77,30 @@ function doPost(e) {
     var body = JSON.parse(e.postData.contents);
     var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
     if (!token) return json_({ ok: false, error: '尚未在「指令碼屬性」設定 TOKEN' });
-    if (body.token !== token) return json_({ ok: false, error: '同步密碼不正確' });
+    var who = auth_(body.token, token);
+    if (!who) return json_({ ok: false, error: '同步密碼不正確' });
+    if (who.off) return json_({ ok: false, error: '這組密碼已停用，請聯絡負責人' });
 
     // 帶密碼的讀取：含填表人名字。只讀不寫，所以不用排隊
-    if (body.action === 'read') return textOut_(readCached_(true));
+    if (body.action === 'read') {
+      var text = readCached_(true);
+      // 用回報員密碼登入的，順便告訴手機「你是誰」，手機就不用再問名字
+      return textOut_(who.name ? '{"who":' + JSON.stringify(who.name) + ',' + text.slice(1) : text);
+    }
 
     lock = LockService.getScriptLock();
     lock.waitLock(20000);
 
     if (body.action === 'upsertMany') {
-      var count = write_(body.records || [], false);
+      var records = body.records || [];
+      // 回報員密碼：填表人一律記名單上的名字，不管手機上打什麼
+      if (who.name) records.forEach(function (r) { r.by = who.name; });
+      var count = write_(records, false, who.name || '');
       cacheClear_();
       return json_({ ok: true, count: count });
     }
     if (body.action === 'init') {
+      if (!who.admin) return json_({ ok: false, error: '初始化要用管理員密碼' });
       write_(body.records || [], true);
       buildSummary_(body.summary || []);
       cacheClear_();
@@ -89,6 +112,55 @@ function doPost(e) {
   } finally {
     try { if (lock) lock.releaseLock(); } catch (x) { /* ignore */ }
   }
+}
+
+/* ---------- 密碼 ---------- */
+
+// 回傳 { admin:true }（管理員密碼）、{ name:'王小明' }（回報員密碼）、{ off:true }（已停用）或 null（不對）
+function auth_(given, adminToken) {
+  if (given === adminToken) return { admin: true };
+  given = String(given == null ? '' : given).trim();
+  if (!given) return null;
+  if (given === String(adminToken).trim()) return { admin: true };
+  var list = roster_();
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].pass === given) return list[i].off ? { off: true } : { name: list[i].name };
+  }
+  return null;
+}
+
+// 「回報員」分頁的名單：[{ name, pass, off }]。密碼太短或沒填名字的列不算。
+function roster_() {
+  var c = null;
+  try {
+    c = CacheService.getScriptCache();
+    var hit = c.get('roster');
+    if (hit) return JSON.parse(hit);
+  } catch (err) { /* 沒快取就直接讀 */ }
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ROSTER);
+  var list = [];
+  if (sh && sh.getLastRow() >= 2) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (row) {
+      var name = String(row[0]).trim(), pass = String(row[1]).trim();
+      if (!name || pass.length < PASS_MIN) return;
+      list.push({ name: name, pass: pass, off: isOff_(row[2]) });
+    });
+  }
+  try { if (c) c.put('roster', JSON.stringify(list), ROSTER_SEC); } catch (err) { /* ignore */ }
+  return list;
+}
+
+function isOff_(v) {
+  if (v === true) return true;
+  var t = String(v == null ? '' : v).trim().toLowerCase();
+  return !!t && t !== 'false' && t !== '0' && t !== '否';
+}
+
+// 在「回報員」分頁改任何東西（例如打勾停用），立刻清掉名單快取，不用等 30 秒
+function onEdit(e) {
+  try {
+    if (e && e.range && e.range.getSheet().getName() === ROSTER) CacheService.getScriptCache().remove('roster');
+  } catch (err) { /* ignore */ }
 }
 
 /* ---------- 讀取快取 ---------- */
@@ -194,20 +266,23 @@ function keyIndex_(sh) {
 }
 
 // createOnly=true：只補上不存在的列（初始化用）。回傳實際寫入的紀錄數
-function write_(records, createOnly) {
+// sender：用回報員密碼送的話是名單上的名字；管理員密碼是空字串
+function write_(records, createOnly, sender) {
   var sh = getSheet_();
   var idx = keyIndex_(sh);
-  var updates = [], appends = [], n = 0;
+  var updates = [], appends = [], n = 0, changed = [];
   records.forEach(function (r) {
     var rows = recordRows_(r);
     var firstRow = idx.map[rows[0][COL.key]];
     if (firstRow && (createOnly || idx.ms[firstRow] >= (r.updatedAt || 0))) return; // 已存在，或雲端比較新
+    if (firstRow && idx.ms[firstRow] > 0) changed.push({ r: r, rows: rows }); // 蓋掉填過的數字 → 記到「修改記錄」
     rows.forEach(function (row) {
       var at = idx.map[row[COL.key]];
       if (at) updates.push({ row: at, values: row }); else appends.push(row);
     });
     n++;
   });
+  if (changed.length) { try { logChanges_(sh, idx, changed, sender); } catch (err) { /* 記錄失敗不擋票數寫入 */ } }
   // 連續的列合併成一次寫入
   updates.sort(function (a, b) { return a.row - b.row; });
   var i = 0;
@@ -220,6 +295,51 @@ function write_(records, createOnly) {
   }
   if (appends.length) sh.getRange(sh.getLastRow() + 1, 1, appends.length, HEADER.length).setValues(appends);
   return n;
+}
+
+/* ---------- 修改記錄 ---------- */
+// 一列 = 一次「蓋掉原本數字」的送出。被亂改時，照「改之前」那一欄重新填回去就好。
+
+function describe_(status, pairs, invalid) {
+  return status + '｜' + pairs.map(function (p) { return p[0] + '號' + p[1] + ' ' + p[2]; }).join('、') + '｜無效票 ' + invalid;
+}
+
+function logChanges_(sh, idx, changed, sender) {
+  var all = sh.getRange(2, 1, sh.getLastRow() - 1, HEADER.length).getValues(); // 寫入前的樣子
+  var now = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm:ss');
+  var out = [];
+  changed.forEach(function (c) {
+    var oldPairs = [], oldInvalid = '', first = null, blank = true;
+    c.rows.forEach(function (row) {
+      var at = idx.map[row[COL.key]];
+      if (!at) return;
+      var old = all[at - 2];
+      if (!first) first = old;
+      if (old[COL.votes] !== '') blank = false;
+      if (old[COL.no] === '無效') oldInvalid = old[COL.votes] === '' ? 0 : old[COL.votes];
+      else oldPairs.push([old[COL.no], old[COL.name], old[COL.votes] === '' ? 0 : old[COL.votes]]);
+    });
+    if (!first) return;
+    if (blank && first[COL.status] === STATUS_LABEL.pending) return; // 歸零後第一次填，沒有蓋掉任何數字
+    var r = c.r;
+    var newPairs = (r.cands || []).map(function (x) { return [x.no, x.name, Number(r.votes && r.votes[x.no]) || 0]; });
+    var before = describe_(first[COL.status], oldPairs, oldInvalid);
+    var after = describe_(STATUS_LABEL[r.status] || '未開票', newPairs, Number(r.invalid) || 0);
+    if (before === after) return; // 數字和狀態都一樣（例如重送），不用記
+    out.push([now, sender || ((r.by || '沒填名字') + '（共用密碼）'), r.id, r.venue, r.raceLabel, before, after,
+      first[COL.by] || '', first[COL.time] || '']);
+  });
+  if (!out.length) return;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var lg = ss.getSheetByName(LOG);
+  if (!lg) {
+    lg = ss.insertSheet(LOG);
+    lg.getRange(1, 1, 1, LOG_HEADER.length).setValues([LOG_HEADER]);
+    lg.getRange(1, 1, 1, LOG_HEADER.length).setFontWeight('bold').setBackground('#dcefe8');
+    lg.setFrozenRows(1);
+    lg.getRange(2, 3, MAX_ROWS, 1).setNumberFormat('@'); // 編號保留 0001 的前導零
+  }
+  lg.getRange(lg.getLastRow() + 1, 1, out.length, LOG_HEADER.length).setValues(out);
 }
 
 function readAll_() {
@@ -254,7 +374,66 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('開票工具')
     .addItem('全部歸零（清空所有票數）', 'resetAll')
     .addItem('歸零某一個投開票所', 'resetOne')
+    .addSeparator()
+    .addItem('回報員名單：產生每個人的密碼和連結', 'setupRoster')
     .addToUi();
+}
+
+/* ---------- 回報員名單（每人一組密碼） ---------- */
+
+// 不容易看錯的字（沒有 0、1、i、l、o）
+function newPass_() {
+  var chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  var hex = Utilities.getUuid().replace(/-/g, ''), out = '';
+  for (var i = 0; i < 8; i++) out += chars.charAt(parseInt(hex.substr(i * 3, 3), 16) % chars.length);
+  return out;
+}
+
+function setupRoster() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(ROSTER);
+  if (!sh) {
+    sh = ss.insertSheet(ROSTER);
+    sh.getRange(1, 1, 1, ROSTER_HEADER.length).setValues([ROSTER_HEADER]);
+    sh.getRange(1, 1, 1, ROSTER_HEADER.length).setFontWeight('bold').setBackground('#dcefe8');
+    sh.setFrozenRows(1);
+    sh.getRange(2, 2, 500, 1).setNumberFormat('@'); // 密碼存成文字
+    sh.getRange(2, 3, 200, 1).insertCheckboxes();
+    sh.setColumnWidth(1, 140); sh.setColumnWidth(2, 120); sh.setColumnWidth(3, 170); sh.setColumnWidth(4, 520);
+    ss.setActiveSheet(sh);
+    ui.alert('已建立「回報員」分頁',
+      '1. 在「名字」欄，一列填一位回報員的名字。\n'
+      + '2. 填完後，再按一次「開票工具 → 回報員名單：產生每個人的密碼和連結」。\n'
+      + '3. 把每個人的「專屬連結」私訊給本人，他點一下就能回報，不用打密碼。\n\n'
+      + '這個分頁只有能打開這份試算表的人看得到。', ui.ButtonSet.OK);
+    return;
+  }
+  var last = sh.getLastRow();
+  if (last < 2) { ui.alert('名單還是空的。\n請先在「名字」欄填上回報員的名字，再按一次。'); return; }
+  var rng = sh.getRange(2, 1, last - 1, 4), vals = rng.getValues();
+  var used = {}, made = 0, people = 0, dup = [], short = [];
+  vals.forEach(function (row) { var p = String(row[1]).trim(); if (p) used[p] = (used[p] || 0) + 1; });
+  vals.forEach(function (row, i) {
+    var name = String(row[0]).trim(), pass = String(row[1]).trim();
+    if (!name) { row[3] = ''; return; }
+    people++;
+    if (!pass) {
+      do { pass = newPass_(); } while (used[pass]);
+      used[pass] = 1; row[1] = pass; made++;
+    } else if (pass.length < PASS_MIN) short.push(name);
+    else if (used[pass] > 1) dup.push(name);
+    row[3] = pass.length >= PASS_MIN ? SITE_URL + '#k=' + encodeURIComponent(pass) : '';
+  });
+  if (!people) { ui.alert('名單還是空的。\n請先在「名字」欄填上回報員的名字，再按一次。'); return; }
+  rng.setValues(vals);
+  try { CacheService.getScriptCache().remove('roster'); } catch (err) { /* ignore */ }
+  var msg = '名單共 ' + people + ' 人，這次新產生 ' + made + ' 組密碼。\n\n'
+    + '把每個人的「專屬連結」私訊給本人（不要貼在群組）。\n'
+    + '要停掉某個人：在「停用」那一欄打勾，立刻生效。';
+  if (short.length) msg += '\n\n⚠ 這些人的密碼少於 ' + PASS_MIN + ' 個字，不會生效（把密碼清空再按一次，會自動產生）：\n' + short.join('、');
+  if (dup.length) msg += '\n\n⚠ 這些人的密碼和別人重複（把其中一個清空再按一次）：\n' + dup.join('、');
+  ui.alert('完成', msg, ui.ButtonSet.OK);
 }
 
 // match(row)：這一列要不要歸零。dryRun=true 只計算有幾筆（投開票所×選舉），不改任何資料。
