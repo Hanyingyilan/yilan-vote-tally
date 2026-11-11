@@ -1,10 +1,24 @@
-/* 宜蘭市開票統計：純前端。資料先存在瀏覽器 localStorage，有設定 Apps Script 網址就同步到 Google 試算表。
+/* 宜蘭縣各鄉鎮市開票統計：純前端。一次只看一個鄉鎮市（網址 ?town=礁溪鄉，或頁首的選單切換）。資料先存在瀏覽器 localStorage，有設定 Apps Script 網址就同步到 Google 試算表。
  * 一筆紀錄 = 一個投開票所 × 一種選舉（key = "0001|mayor"），同步時各自以最後更新時間為準。 */
 (() => {
   "use strict";
 
-  const DATA = window.YILAN_DATA;
-  const C = window.YILAN_CANDIDATES;
+  // 各鄉鎮市的資料在 data/towns/*.js。目前看哪一個：網址的 ?town= ＞ 這支手機上次看的 ＞ 宜蘭市
+  const TOWNS = window.TALLY_TOWNS || {};
+  const townNames = Object.keys(TOWNS);
+  const DEFAULT_TOWN = "宜蘭市";
+  const townName = (() => {
+    let t = "";
+    try { t = new URLSearchParams(location.search).get("town") || ""; } catch (_) { /* ignore */ }
+    if (!TOWNS[t]) { try { t = localStorage.getItem("tally:town") || ""; } catch (_) { /* ignore */ } }
+    if (!TOWNS[t]) t = TOWNS[DEFAULT_TOWN] ? DEFAULT_TOWN : townNames[0];
+    try { localStorage.setItem("tally:town", t); } catch (_) { /* ignore */ }
+    return t;
+  })();
+  const IS_DEFAULT = townName === DEFAULT_TOWN;
+  const DATA = TOWNS[townName];
+  const C = DATA.candidates;
+  const L = DATA.labels; // head＝市長／鄉長、rep＝市民代表／鄉民代表、chief＝里長／村長、unit＝里／村、whole＝全市／全鄉
   const CFG = window.TALLY_CONFIG;
   const stations = DATA.stations;
   const byId = Object.fromEntries(stations.map((s) => [s.id, s]));
@@ -14,17 +28,18 @@
   const villagesOf = (d) => [...DATA.districts[d].villages].sort((a, b) => firstStation(a) - firstStation(b));
   const stationsOf = (d) => stations.filter((s) => s.district === d);
   const STATUS = { pending: "未開票", counting: "開票中", done: "已完成" };
-  const LS_KEY = "yilan-vote-tally:v2";
+  // 每個鄉鎮市的票數各存各的（宜蘭市沿用原本的名稱，舊資料不受影響）
+  const LS_KEY = IS_DEFAULT ? "yilan-vote-tally:v2" : `yilan-vote-tally:v2:${DATA.code}`;
   const SYNC_INTERVAL = 20000 + Math.floor(Math.random() * 5000); // 每台裝置錯開一點，避免同一秒一起讀取
 
   /* ---------- 選舉項目 ---------- */
   // scope: all＝全市一份名單；district＝依市民代表選舉區；village＝依里
   const single = (label, seats, cands) => ({ all: { label, seats, cands } });
   const RACES = [
-    { key: "mayor", label: "市長", full: "宜蘭市長", scope: "all", applies: () => true, groupOf: () => "all", groups: single("宜蘭市長", 1, C.mayor) },
-    { key: "rep", label: "市民代表", full: "宜蘭市民代表", scope: "district", applies: () => true, groupOf: (s) => String(s.district),
+    { key: "mayor", label: L.head, full: `${townName}長`, scope: "all", applies: () => true, groupOf: () => "all", groups: single(`${townName}長`, 1, C.mayor) },
+    { key: "rep", label: L.rep, full: `${townName}民代表`, scope: "district", applies: () => true, groupOf: (s) => String(s.district),
       groups: Object.fromEntries(districtIds.map((d) => [String(d), { label: `第${d}選舉區`, seats: DATA.districts[d].seats, cands: C.rep[d] || [] }])) },
-    { key: "chief", label: "里長", full: "宜蘭市里長", scope: "village", applies: () => true, groupOf: (s) => s.village,
+    { key: "chief", label: L.chief, full: `${townName}${L.chief}`, scope: "village", applies: () => true, groupOf: (s) => s.village,
       groups: Object.fromEntries(Object.entries(C.chief).map(([v, cs]) => [v, { label: v, seats: 1, cands: cs }])) },
     { key: "county", label: "縣長", full: "宜蘭縣長", scope: "all", applies: () => true, groupOf: () => "all", groups: single("宜蘭縣長", 1, C.county) },
     { key: "council", label: "縣議員", full: `宜蘭縣議員（${C.council.area}）`, scope: "all", applies: () => true, groupOf: () => "all", groups: single(C.council.area, C.council.seats, C.council.cands) },
@@ -37,7 +52,7 @@
   const councilArea = String(C.council.area || "").replace(/^宜蘭縣/, "");
   // 「合計」範圍：直接填整個範圍加起來的票數，和各投開票所分開存放（id：ALL、D1…D4、V:里名）
   const SCOPES = [
-    { id: "ALL", kind: "all", name: "宜蘭市全市合計", district: null, village: null, neighbors: "", address: "", note: "" },
+    { id: "ALL", kind: "all", name: `${townName}${L.whole}合計`, district: null, village: null, neighbors: "", address: "", note: "" },
     ...districtIds.map((d) => ({ id: `D${d}`, kind: "district", name: `第${d}選舉區合計`, district: d, village: null, neighbors: "", address: "", note: "" })),
     ...districtIds.flatMap((d) => villagesOf(d).map((v) => ({ id: `V:${v}`, kind: "village", name: `${v}合計`, district: d, village: v, neighbors: "", address: "", note: "" }))),
   ];
@@ -184,13 +199,16 @@
 
   /* ---------- 頁首／分頁／選舉切換 ---------- */
   function initHeader() {
-    const title = CFG.title || "宜蘭市開票統計";
-    $("#title").textContent = title;
+    // 有兩個以上鄉鎮市時，標題裡的鄉鎮市名稱就是切換選單
+    $("#title").innerHTML = townNames.length > 1
+      ? `<select id="townSel" class="town-sel" aria-label="切換鄉鎮市">${townNames.map((t) => `<option value="${esc(t)}" ${t === townName ? "selected" : ""}>${esc(t)}</option>`).join("")}</select><span class="title-rest">開票統計</span>`
+      : `${esc(townName)}開票統計`;
     const days = Math.ceil((new Date(`${CFG.electionDate}T00:00:00+08:00`) - Date.now()) / 86400000);
     const when = days > 0 ? `距離投票日 ${days} 天` : days === 0 ? "今天投票" : "";
     $("#subtitle").textContent = [CFG.electionDate ? `${CFG.electionDate} 投票` : "", when, `${stations.length} 個投開票所`].filter(Boolean).join("　");
     $("#source").textContent = "資料來源：" + DATA.source + "；" + C.source;
-    document.title = CFG.title || "宜蘭市開票統計";
+    document.title = `${townName}開票統計`;
+    $("#q").placeholder = `搜尋編號或${L.unit}`;
     const setTop = () => document.documentElement.style.setProperty("--top-h", $(".top").offsetHeight + "px");
     setTop();
     addEventListener("resize", setTop);
@@ -296,7 +314,7 @@
     const r = getRec(sc.id, race.key);
     const st = r?.status || "pending";
     const k = calc(r);
-    const tag = sc.kind === "all" ? "全市" : sc.kind === "district" ? `${sc.district}區` : "里";
+    const tag = sc.kind === "all" ? L.whole : sc.kind === "district" ? `${sc.district}區` : L.unit;
     return `<li><button type="button" class="st" data-id="${esc(sc.id)}" data-s="${st}">
       <span class="sid">${tag}</span>
       <span class="st-main"><span class="name">${esc(sc.name)}</span>${sc.kind === "village" ? `<span class="sub">第${sc.district}選舉區</span>` : ""}</span>
@@ -310,12 +328,12 @@
     ui.visible = [];
     const html = [];
     const top = SCOPES.filter((sc) => sc.kind !== "village" && ok(sc));
-    if (top.length) html.push(`<section class="dist"><div class="dist-head"><h2>全市與選舉區</h2></div><ul class="stations">${top.map(scopeButton).join("")}</ul></section>`);
+    if (top.length) html.push(`<section class="dist"><div class="dist-head"><h2>${L.whole}與選舉區</h2></div><ul class="stations">${top.map(scopeButton).join("")}</ul></section>`);
     for (const d of districtIds) {
       const vs = SCOPES.filter((sc) => sc.kind === "village" && sc.district === d && ok(sc));
-      if (vs.length) html.push(`<section class="dist"><div class="dist-head"><h2>第${d}選舉區　各里</h2></div><ul class="stations">${vs.map(scopeButton).join("")}</ul></section>`);
+      if (vs.length) html.push(`<section class="dist"><div class="dist-head"><h2>第${d}選舉區　各${L.unit}</h2></div><ul class="stations">${vs.map(scopeButton).join("")}</ul></section>`);
     }
-    const hint = `<p class="hint"><b>合計</b>是整個範圍加起來的票數（例如某個里、某個選舉區或全市）。在投開票所現場回報的人，只要到「各投開票所」填就好，<b>不用</b>再填合計；這裡是給拿得到合計數字的人用的，總覽頁會把它和各所加總並排對照。</p>`;
+    const hint = `<p class="hint"><b>合計</b>是整個範圍加起來的票數（例如某個${L.unit}、某個選舉區或${L.whole}）。在投開票所現場回報的人，只要到「各投開票所」填就好，<b>不用</b>再填合計；這裡是給拿得到合計數字的人用的，總覽頁會把它和各所加總並排對照。</p>`;
     $("#list").innerHTML = hint + (html.join("") || `<p class="empty">沒有符合的項目</p>`);
   }
   function renderList() {
@@ -336,7 +354,7 @@
         if (!rows.length) continue;
         rows.forEach((s) => ui.visible.push(s.id));
         const g = race.scope === "village" ? race.groups[v] : null;
-        groups.push(`<div class="village"><h3>${esc(v)} <small>${rows.length} 所${g ? `　候選人：${g.cands.map((c) => esc(c.name)).join("、")}${g.cands.length === 1 ? "（同額競選）" : ""}` : ""}</small></h3><ul class="stations">${rows.map(stationButton).join("")}</ul></div>`);
+        groups.push(`<div class="village"><h3>${esc(v)} <small>${rows.length} 所${g ? `　候選人：${g.cands.map((c) => esc(c.name)).join("、")}${g.cands.length === 1 ? "（同額競選）" : ""}` : ""}</small></h3><ul class="stations">${rows.map((s) => stationButton(s)).join("")}</ul></div>`);
       }
       if (!groups.length) continue;
       html.push(`<section class="dist">
@@ -346,7 +364,7 @@
           <div class="bar" aria-hidden="true"><i style="width:${ag.n ? (ag.done / ag.n) * 100 : 0}%"></i></div>
         </div>${groups.join("")}</section>`);
     }
-    const head = race.key === "council" ? `<p class="sumline racenote"><b>宜蘭縣議員　${esc(councilArea)}${seatTag(race, race.groups.all)}</b><span>這裡登錄的是宜蘭市內各投開票所的票數</span></p>` : "";
+    const head = race.key === "council" ? `<p class="sumline racenote"><b>宜蘭縣議員　${esc(councilArea)}${seatTag(race, race.groups.all)}</b><span>這裡登錄的是${esc(townName)}內各投開票所的票數</span></p>` : "";
     // 這支手機上次回報的投開票所放最上面，不用每次從 82 所裡找
     const lastS = byId[state.settings.lastId];
     const lastHtml = lastS && !lastS.kind && race.applies(lastS) && !ui.q.trim()
@@ -396,7 +414,7 @@
     edRace = rs.some((r) => r.key === raceKey) ? raceKey : rs[0].key;
     edSnap = Object.fromEntries(rs.map((r) => [r.key, getRec(id, r.key)?.updatedAt || 0]));
     const eyebrow = !s.kind ? `第${s.district}選舉區　${esc(s.village)}`
-      : s.kind === "all" ? "合計　全市" : s.kind === "district" ? `合計　第${s.district}選舉區` : `合計　第${s.district}選舉區　${esc(s.village)}`;
+      : s.kind === "all" ? `合計　${L.whole}` : s.kind === "district" ? `合計　第${s.district}選舉區` : `合計　第${s.district}選舉區　${esc(s.village)}`;
     const title = s.kind ? esc(s.name) : `${s.id} ${esc(s.name)}`;
     const sub = s.kind ? "這是整個範圍加起來的票數，和各投開票所的票數分開存放，不會重複加總。" : `鄰 ${esc(s.neighbors)}　${esc(s.address)}`;
     const dlg = $("#editor");
@@ -565,6 +583,7 @@
     const needToken = !!syncUrl() && !state.settings.token;
     if (!syncUrl()) show("warn", `⚠ <b>還沒送出！</b>這支手機沒有連到雲端。`);
     else if (pend.length && needToken) show("warn", `⚠ <b>還沒送出！</b>請輸入同步密碼，票數才會送出。`, btn("輸入同步密碼"));
+    else if (pend.length && ui.error === OLD_BACKEND) show("warn", `⚠ <b>還沒送出！</b>${esc(OLD_BACKEND)}。票數還在手機裡，不用重填。`);
     else if (pend.length && ui.error) show("warn", `⚠ <b>還沒送出！</b>網路不通，或密碼不對。票數還在手機裡，不用重填。`, btn("重新輸入同步密碼"));
     else if (pend.length) show("busy", `⏳ <b>傳送中…請稍等</b>`);
     else show("ok", `<span class="big">✅ 已送出！</span><br>票數已傳到雲端<small>（${names}）</small>`);
@@ -692,9 +711,9 @@
         const a = agg(race, l);
         return `<tr><td>第${d}選舉區</td><td>${a.done}/${a.n}</td>${voteCells(g, a)}</tr>`;
       }).join("");
-      const distTable = `<section class="card"><h2>各市民代表選舉區<small>各區內投開票所加總</small></h2><div class="tbl-wrap"><table>
+      const distTable = `<section class="card"><h2>各${L.rep}選舉區<small>各區內投開票所加總</small></h2><div class="tbl-wrap"><table>
         <thead><tr><th>選舉區</th><th>完成</th>${headCells(g)}</tr></thead><tbody>${distRows}
-        <tr class="sum"><td>全市</td><td>${all.done}/${all.n}</td>${voteCells(g, all)}</tr></tbody></table></div></section>`;
+        <tr class="sum"><td>${L.whole}</td><td>${all.done}/${all.n}</td>${voteCells(g, all)}</tr></tbody></table></div></section>`;
       const villRows = districtIds.map((d) => {
         const rows = villagesOf(d).map((v) => {
           const l = stations.filter((s) => s.village === v && race.applies(s));
@@ -704,10 +723,10 @@
         }).join("");
         return rows ? `<tr class="grp"><td colspan="${g.cands.length + 5}">第${d}選舉區</td></tr>${rows}` : "";
       }).join("");
-      const villTable = `<section class="card"><h2>各里</h2><div class="tbl-wrap"><table>
-        <thead><tr><th>里</th><th>完成</th>${headCells(g)}</tr></thead><tbody>${villRows}</tbody></table></div></section>`;
+      const villTable = `<section class="card"><h2>各${L.unit}</h2><div class="tbl-wrap"><table>
+        <thead><tr><th>${L.unit}</th><th>完成</th>${headCells(g)}</tr></thead><tbody>${villRows}</tbody></table></div></section>`;
       // 候選人得票放在最上面，其次才是進度與各項統計
-      main = `<div class="ov-grid"><div class="stack">${candBlock(g, all, race.key === "council" ? `宜蘭縣議員　${esc(councilArea)}${seatTag(race, g)}` : `${esc(race.full)}　全市得票`)}${flagCard}${compare}</div><div class="stack">${distTable}${villTable}</div></div>`;
+      main = `<div class="ov-grid"><div class="stack">${candBlock(g, all, race.key === "council" ? `宜蘭縣議員　${esc(councilArea)}${seatTag(race, g)}` : `${esc(race.full)}　${L.whole}得票`)}${flagCard}${compare}</div><div class="stack">${distTable}${villTable}</div></div>`;
     } else {
       const line = `<p class="sumline"><b>${esc(race.full)}${race.key === "rep" ? `<span class="seats">（共應選 ${districtIds.reduce((n, d) => n + race.groups[String(d)].seats, 0)} 席）</span>` : ""}</b><span><b>${all.done}</b> / ${all.n} 所完成</span><span>有效票 <b>${fmt(all.valid)}</b></span><span>無效票 <b>${fmt(all.invalid)}</b></span></p>`;
       let blocks;
@@ -725,7 +744,7 @@
             const a = agg(race, stations.filter((s) => s.village === v));
             return candBlock(g, a, esc(v), true);
           }).join("");
-          return `<h2 class="sec-title">第${d}選舉區 <small>${villagesOf(d).length} 里</small></h2><div class="blocks small">${cards}</div>`;
+          return `<h2 class="sec-title">第${d}選舉區 <small>${villagesOf(d).length} ${L.unit}</small></h2><div class="blocks small">${cards}</div>`;
         }).join("");
       }
       main = `${line}${flagCard}${blocks}${compare}`;
@@ -772,22 +791,22 @@
   const stamp = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
   function exportCsv() {
     // 長表格式（一列＝一個範圍×一種選舉×一位候選人），方便之後用樞紐分析做統計；「類型」欄區分投開票所與手動合計
-    const head = ["編號", "市民代表選舉區", "里", "鄰別", "投開票所", "選舉", "選區／範圍", "號次", "候選人", "政黨", "得票數", "狀態", "選舉人數", "填表人", "更新時間", "類型"];
+    const head = ["編號", "代表選舉區", "村里", "鄰別", "投開票所", "選舉", "選區／範圍", "號次", "候選人", "政黨", "得票數", "狀態", "選舉人數", "填表人", "更新時間", "類型"];
     const rows = [];
     for (const s of [...stations, ...SCOPES]) for (const race of racesOf(s)) {
       const g = groupOf(race, s);
       const r = getRec(s.id, race.key);
       const st = r?.status || "pending";
-      const dist = s.kind === "all" ? "全市" : `第${s.district}選舉區`;
+      const dist = s.kind === "all" ? L.whole : `第${s.district}選舉區`;
       const common = [s.id, dist, s.village || "", s.neighbors || "", s.kind ? `【合計】${s.name}` : s.name, race.full, g.label];
       const meta = [STATUS[st], r?.electors ?? "", r?.by || "", r?.updatedAt ? new Date(r.updatedAt).toLocaleString("zh-TW", { hour12: false }) : "", s.kind ? "合計" : "投開票所"];
       for (const c of g.cands) rows.push([...common, c.no, c.name, c.party, st === "pending" ? "" : r.votes?.[c.no] || 0, ...meta]);
       rows.push([...common, "無效", "無效票", "", st === "pending" ? "" : r.invalid || 0, ...meta]);
     }
-    download(`宜蘭市開票明細_${stamp()}.csv`, "﻿" + [head, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n"), "text/csv;charset=utf-8");
+    download(`${townName}開票明細_${stamp()}.csv`, "﻿" + [head, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n"), "text/csv;charset=utf-8");
   }
   function exportJson() {
-    download(`宜蘭市開票備份_${stamp()}.json`, JSON.stringify({ version: 2, exportedAt: Date.now(), records: Object.values(state.records) }, null, 1), "application/json");
+    download(`${townName}開票備份_${stamp()}.json`, JSON.stringify({ version: 2, exportedAt: Date.now(), records: Object.values(state.records) }, null, 1), "application/json");
   }
   function importJson(file) {
     const rd = new FileReader();
@@ -832,13 +851,18 @@
   }
   function wire(rec) {
     const s = byId[rec.id], race = raceByKey[rec.race], g = groupOf(race, s);
-    return { ...rec, raceLabel: race.full, group: g.label, district: s.district, districtLabel: s.kind === "all" ? "全市" : `第${s.district}選舉區`,
+    return { ...rec, raceLabel: race.full, group: g.label, district: s.district, districtLabel: s.kind === "all" ? L.whole : `第${s.district}選舉區`,
       village: s.village || "", venue: s.kind ? `【合計】${s.name}` : `${s.id} ${s.name}`, neighbors: s.neighbors || "", kind: s.kind ? "合計" : "投開票所",
       cands: g.cands.map((c) => ({ no: c.no, name: c.name })) };
   }
+  const OLD_BACKEND = `雲端後端還沒更新到支援「${townName}」的版本，請負責人貼上最新的 Code.gs 並重新部署`;
+  // 宜蘭市不帶鄉鎮市參數（和舊版後端相容）；其他鄉鎮市一定帶，而且回應必須寫明是同一個鄉鎮市
+  const townOk = (res) => IS_DEFAULT || !res || !res.ok || res.town === townName;
   async function post(payload) {
-    const res = await fetch(syncUrl(), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload), redirect: "follow" });
-    return res.json();
+    const body = IS_DEFAULT ? payload : { ...payload, town: townName };
+    const res = await fetch(syncUrl(), { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body), redirect: "follow" });
+    const out = await res.json();
+    return townOk(out) ? out : { ok: false, error: OLD_BACKEND };
   }
   async function getAll() {
     // 有密碼：用帶密碼的讀取，才拿得到填表人名字。密碼不對或後端還是舊版，就退回公開讀取。
@@ -848,8 +872,9 @@
         if (full && full.ok) return full;
       } catch (_) { /* 退回公開讀取 */ }
     }
-    const res = await fetch(syncUrl() + (syncUrl().includes("?") ? "&" : "?") + "action=all&t=" + Date.now(), { redirect: "follow" });
-    return res.json();
+    const res = await fetch(syncUrl() + (syncUrl().includes("?") ? "&" : "?") + "action=all&t=" + Date.now() + (IS_DEFAULT ? "" : "&town=" + encodeURIComponent(townName)), { redirect: "follow" });
+    const out = await res.json();
+    return townOk(out) ? out : { ok: false, error: OLD_BACKEND };
   }
   async function syncNow() {
     if (!syncUrl() || ui.syncing) return;
@@ -858,6 +883,12 @@
       const keys = Object.keys(state.dirty).filter((k) => state.records[k]);
       if (keys.length) {
         if (!state.settings.token) throw new Error("NO_TOKEN");
+        // 別的鄉鎮市：送出前先確認後端認得這個鄉鎮市。舊版後端會把票寫進宜蘭市的表，所以沒確認就不送。
+        if (!IS_DEFAULT && !ui.backendOk) {
+          const chk = await getAll();
+          if (!chk.ok) throw new Error(chk.error || "讀取失敗");
+          ui.backendOk = true;
+        }
         const sent = keys.map((k) => [k, state.records[k].updatedAt]);
         const res = await post({ action: "upsertMany", token: state.settings.token, records: keys.map((k) => wire(state.records[k])) });
         if (!res.ok) throw new Error(res.error || "上傳失敗");
@@ -1026,6 +1057,10 @@
     });
     document.addEventListener("change", (e) => {
       if (e.target.id === "statusFilter") { ui.status = e.target.value; renderList(); }
+      if (e.target.id === "townSel") { // 換鄉鎮市＝重新載入那個鄉鎮市的資料
+        try { localStorage.setItem("tally:town", e.target.value); } catch (_) { /* ignore */ }
+        location.href = location.pathname + "?town=" + encodeURIComponent(e.target.value) + location.hash;
+      }
       if (e.target.id === "importFile" && e.target.files[0]) { importJson(e.target.files[0]); e.target.value = ""; }
     });
     $("#editor").addEventListener("cancel", (e) => { if (edDirty) { e.preventDefault(); closeEditor(); } });

@@ -8,6 +8,22 @@
 純靜態網站（HTML / CSS / JS，沒有建置步驟、沒有套件），放 GitHub Pages 即可。
 要「大家的票數合在一起」需要再接 Google 試算表（見下方，約 10 分鐘）。
 
+## 多個鄉鎮市（county 分支）
+
+這個分支把網站改成可以開多個鄉鎮市，目前有**宜蘭市**和**礁溪鄉**。
+
+- **切換**：頁首標題的鄉鎮市名稱就是選單；也可以直接用網址 `…/?town=礁溪鄉`（傳給礁溪鄉回報員的連結用這個）。沒帶參數時，會開這支手機上次看的鄉鎮市，第一次則是宜蘭市。
+- **用詞會跟著換**：礁溪鄉顯示鄉長、鄉民代表、村長、全鄉；宜蘭市顯示市長、市民代表、里長、全市。
+- **資料各存各的**：每個鄉鎮市在 Google 試算表有自己的兩個分頁（宜蘭市＝「得票明細」「彙總」；礁溪鄉＝「礁溪鄉 得票明細」「礁溪鄉 彙總」）；手機上的暫存也分開。
+- **密碼**：預設共用 `TOKEN`。想讓礁溪鄉用自己的密碼，在 Apps Script 的指令碼屬性加一個 `TOKEN_礁溪鄉`；加了之後，共用密碼就不能寫礁溪鄉，礁溪鄉的密碼也不能寫宜蘭市。
+- **第一次開一個鄉鎮市**：貼上最新的 `Code.gs` 並重新部署 → 網站切到那個鄉鎮市 → ⚙ →「初始化雲端表格」，會自動建立它的兩個分頁。
+- **歸零**：先點到那個鄉鎮市的分頁，再按「開票工具」。只會清那個鄉鎮市。
+- **保護**：後端還沒更新成支援鄉鎮市的版本時，宜蘭市以外的鄉鎮市一律不會送出票數（會顯示「雲端後端還沒更新」），避免把別的鄉鎮市的票寫進宜蘭市的表。
+- **要再開一個鄉鎮市**：看 `tools/build_towns.py` 開頭的說明（12 個鄉鎮市的代表選舉區應選名額都已記在檔案裡）。
+- **還沒做**：把各鄉鎮市的縣長、縣議員票數加總成「全縣」的頁面。
+
+礁溪鄉資料（官方來源同宜蘭市）：36 個投開票所（0216–0251）、18 村、30 個地點；鄉長 4 人；鄉民代表 4 個選舉區應選 5／1／2／3 席（共 11 席）；村長 35 人；屬縣議員第 3 選舉區（應選 3 席，5 人）。
+
 ## 涵蓋的選舉與候選人
 
 候選人取自中選會「115 年地方公職人員選舉」選舉專區的公開資料。
@@ -156,13 +172,14 @@ curl -s -o $D/cand_C1_10002.json            $B/cand/C1/10002.json
 curl -s -o $D/cand_T_10002.json             $B/cand/T/10002.json
 curl -s -o $D/cand_D1_10002.json            $B/cand/D1/10002.json
 curl -s -o $D/cand_R_10002.json             $B/cand/R/10002.json
-curl -s -o $D/cand_V1_10002_10002010.json   $B/cand/V1/10002/10002010.json
-python3 tools/build_candidates.py
+curl -s -o $D/cand_V1_10002_10002010.json   $B/cand/V1/10002/10002010.json   # 宜蘭市村里長
+curl -s -o $D/cand_V1_10002_10002050.json   $B/cand/V1/10002/10002050.json   # 礁溪鄉村里長
+python3 tools/build_towns.py
 ```
 
-**投開票所**：把新的官方 ODS 放到 `tools/source/stations_115.ods`，執行 `python3 tools/build_stations.py`。
+**投開票所**：把新的官方 ODS 放到 `tools/source/stations_115.ods`，執行 `python3 tools/build_towns.py`。
 
-兩個腳本都只用 Python 標準函式庫；會自動檢查里、選舉區、候選人是否對得上。**重新產生後請 commit 並 push**。
+腳本只用 Python 標準函式庫；會自動檢查村里、選舉區、候選人是否對得上。**重新產生後請 commit 並 push**。
 開票開始後，不要再改候選人號次，否則已填的票數會對錯人。
 
 ## 檔案
@@ -170,11 +187,9 @@ python3 tools/build_candidates.py
 ```
 index.html, style.css, app.js   網站本體
 config.js                       標題、投票日、同步網址
-data/stations.js                82 個投開票所＋市民代表選舉區（自動產生）
-data/candidates.js              七種選舉的候選人（自動產生）
+data/towns/010.js, 050.js       各鄉鎮市的投開票所、代表選舉區、候選人（自動產生；010＝宜蘭市、050＝礁溪鄉）
 apps-script/Code.gs             Google 試算表後端
-tools/build_stations.py         官方 ODS → data/stations.js
-tools/build_candidates.py       中選會 JSON → data/candidates.js
+tools/build_towns.py            官方 ODS＋中選會 JSON → data/towns/*.js
 tools/source/                   上面兩個腳本的原始資料
 ```
 

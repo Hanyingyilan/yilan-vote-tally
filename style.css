@@ -50,6 +50,17 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .top-row { display: flex; align-items: center; justify-content: space-between; padding: 10px var(--gutter); }
 .brand { min-width: 0; }
 .brand h1 { font-family: var(--serif); font-weight: 900; font-size: 24px; line-height: 1.3; white-space: nowrap; }
+/* 標題裡的鄉鎮市名稱就是切換選單 */
+.town-sel {
+  width: auto; min-height: 0; font: inherit; color: #fff; background-color: transparent; border: 0; border-bottom: 2px solid rgba(255, 255, 255, .75); border-radius: 0;
+  padding: 0 24px 0 0; margin-right: 6px; -webkit-appearance: none; appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 4px center; background-size: 14px;
+}
+/* 手機上位置不夠：有切換選單時只留鄉鎮市名稱，「開票統計」四個字到寬一點的螢幕才顯示 */
+.title-rest { display: none; }
+@media (min-width: 480px) { .title-rest { display: inline; } }
+.town-sel option { color: #15171c; font-family: var(--font); font-weight: 400; }
 .brand p { display: none; font-size: 16px; color: rgba(255, 255, 255, .88); }
 .top-actions { display: flex; align-items: center; flex-shrink: 0; margin-left: 10px; }
 .chip {

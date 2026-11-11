@@ -11,6 +11,10 @@
  * 填表人的名字不公開：不帶密碼的讀取（GET）拿不到名字；帶密碼的讀取（POST action=read）才有。
  * 讀取結果會快取 15 秒（有人寫入或歸零時立刻清掉），很多人同時看統計頁也不會把後端擠爆。
  *
+ * 多個鄉鎮市：每個鄉鎮市各用自己的兩個分頁。宜蘭市＝「得票明細」「彙總」（沿用原本的）；
+ *   其他鄉鎮市＝「礁溪鄉 得票明細」「礁溪鄉 彙總」這樣的名稱，第一次按網站的「初始化雲端表格」時自動建立。
+ *   密碼：指令碼屬性 TOKEN 是共用密碼；想讓某個鄉鎮市用自己的密碼，再加一個屬性，例如 TOKEN_礁溪鄉。
+ *
  * 試算表格式（「得票明細」分頁，長表）：
  *   一列 = 一個範圍 × 一種選舉 × 一位候選人（另有一列「無效票」），方便用樞紐分析表統計。
  *   「類型」欄：投開票所＝各所回報；合計＝直接填的全市／選舉區／里合計（和各所分開存，彙總時不重複加）。
@@ -18,7 +22,9 @@
 
 var DETAIL = '得票明細';
 var SUMMARY = '彙總';
-var HEADER = ['編號', '市民代表選舉區', '里', '投開票所', '選舉', '選區／範圍', '號次', '候選人', '得票數',
+var DEFAULT_TOWN = '宜蘭市';
+var TOWN_LIST = ['宜蘭市', '羅東鎮', '蘇澳鎮', '頭城鎮', '礁溪鄉', '壯圍鄉', '員山鄉', '冬山鄉', '五結鄉', '三星鄉', '大同鄉', '南澳鄉'];
+var HEADER = ['編號', '代表選舉區', '村里', '投開票所', '選舉', '選區／範圍', '號次', '候選人', '得票數',
   '狀態', '選舉人數', '填表人', '更新時間', 'updatedAtMs', 'key', '類型'];
 var COL = { id: 0, district: 1, village: 2, venue: 3, race: 4, group: 5, no: 6, name: 7, votes: 8,
   status: 9, electors: 10, by: 11, time: 12, ms: 13, key: 14, kind: 15 };
@@ -28,6 +34,19 @@ var MAX_ROWS = 10000;
 var CACHE_SEC = 15;      // 讀取結果快取秒數
 var CACHE_CHUNK = 30000; // 快取每段的字數（CacheService 單筆上限 100KB，中文一個字最多 3 bytes）
 
+// 沒指定鄉鎮市＝宜蘭市（舊版網站不會帶這個參數）
+function town_(name) {
+  var t = String(name || '').trim() || DEFAULT_TOWN;
+  if (TOWN_LIST.indexOf(t) < 0) throw new Error('沒有這個鄉鎮市：' + t);
+  return t;
+}
+function detailName_(town) { return town === DEFAULT_TOWN ? DETAIL : town + ' ' + DETAIL; }
+function summaryName_(town) { return town === DEFAULT_TOWN ? SUMMARY : town + ' ' + SUMMARY; }
+function token_(town) {
+  var p = PropertiesService.getScriptProperties();
+  return p.getProperty('TOKEN_' + town) || p.getProperty('TOKEN');
+}
+
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -36,7 +55,7 @@ function doGet(e) {
   try {
     var action = (e && e.parameter && e.parameter.action) || 'all';
     if (action !== 'all') return json_({ ok: false, error: 'unknown action' });
-    return textOut_(readCached_(false)); // 公開讀取：不含填表人名字
+    return textOut_(readCached_(town_(e && e.parameter && e.parameter.town), false)); // 公開讀取：不含填表人名字
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
@@ -47,11 +66,11 @@ function textOut_(text) {
 }
 
 // withNames=true：含填表人名字（只給有密碼的人）；false：名字一律清空（公開）
-function readCached_(withNames) {
-  var kind = withNames ? 'full' : 'pub';
+function readCached_(town, withNames) {
+  var kind = (withNames ? 'full' : 'pub') + ':' + town;
   var text = cacheGet_(kind);
   if (text) return text;
-  var data = readAll_();
+  var data = readAll_(town);
   if (!withNames) data.records.forEach(function (r) { r.by = ''; });
   text = JSON.stringify(data);
   cachePut_(kind, text);
@@ -62,26 +81,27 @@ function doPost(e) {
   var lock = null;
   try {
     var body = JSON.parse(e.postData.contents);
-    var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
+    var town = town_(body.town);
+    var token = token_(town);
     if (!token) return json_({ ok: false, error: '尚未在「指令碼屬性」設定 TOKEN' });
     if (body.token !== token) return json_({ ok: false, error: '同步密碼不正確' });
 
     // 帶密碼的讀取：含填表人名字。只讀不寫，所以不用排隊
-    if (body.action === 'read') return textOut_(readCached_(true));
+    if (body.action === 'read') return textOut_(readCached_(town, true));
 
     lock = LockService.getScriptLock();
     lock.waitLock(20000);
 
     if (body.action === 'upsertMany') {
-      var count = write_(body.records || [], false);
-      cacheClear_();
-      return json_({ ok: true, count: count });
+      var count = write_(town, body.records || [], false);
+      cacheClear_(town);
+      return json_({ ok: true, town: town, count: count });
     }
     if (body.action === 'init') {
-      write_(body.records || [], true);
-      buildSummary_(body.summary || []);
-      cacheClear_();
-      return json_({ ok: true, rows: getSheet_().getLastRow() - 1 });
+      write_(town, body.records || [], true);
+      buildSummary_(town, body.summary || []);
+      cacheClear_(town);
+      return json_({ ok: true, town: town, rows: getSheet_(town).getLastRow() - 1 });
     }
     return json_({ ok: false, error: 'unknown action' });
   } catch (err) {
@@ -94,7 +114,7 @@ function doPost(e) {
 /* ---------- 讀取快取 ---------- */
 // 整份資料可能超過單筆快取上限，所以切成幾段存；每次存都換一個新的批號，避免讀到新舊混在一起的段落。
 
-// kind：'pub'＝公開版（沒有名字）、'full'＝完整版（有名字），兩份分開存
+// kind：'pub:鄉鎮市'＝公開版（沒有名字）、'full:鄉鎮市'＝完整版（有名字），各自分開存
 function cacheGet_(kind) {
   try {
     var c = CacheService.getScriptCache();
@@ -126,16 +146,17 @@ function cachePut_(kind, text) {
   } catch (err) { /* 快取失敗就算了，下次直接讀試算表 */ }
 }
 
-function cacheClear_() {
-  try { CacheService.getScriptCache().removeAll(['pub:head', 'full:head']); } catch (err) { /* ignore */ }
+function cacheClear_(town) {
+  try { CacheService.getScriptCache().removeAll(['pub:' + town + ':head', 'full:' + town + ':head']); } catch (err) { /* ignore */ }
 }
 
 /* ---------- 工作表 ---------- */
 
-function getSheet_() {
+function getSheet_(town) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(DETAIL);
-  if (!sh) sh = ss.insertSheet(DETAIL, 0);
+  var name = detailName_(town);
+  var sh = ss.getSheetByName(name);
+  if (!sh) sh = town === DEFAULT_TOWN ? ss.insertSheet(name, 0) : ss.insertSheet(name);
   var cur = sh.getLastColumn() ? sh.getRange(1, 1, 1, HEADER.length).getValues()[0] : [];
   var same = HEADER.every(function (h, i) { return cur[i] === h; });
   if (!same) {
@@ -194,8 +215,8 @@ function keyIndex_(sh) {
 }
 
 // createOnly=true：只補上不存在的列（初始化用）。回傳實際寫入的紀錄數
-function write_(records, createOnly) {
-  var sh = getSheet_();
+function write_(town, records, createOnly) {
+  var sh = getSheet_(town);
   var idx = keyIndex_(sh);
   var updates = [], appends = [], n = 0;
   records.forEach(function (r) {
@@ -222,9 +243,9 @@ function write_(records, createOnly) {
   return n;
 }
 
-function readAll_() {
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DETAIL);
-  if (!sh || sh.getLastRow() < 2) return { ok: true, records: [], serverTime: Date.now() };
+function readAll_(town) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(detailName_(town));
+  if (!sh || sh.getLastRow() < 2) return { ok: true, town: town, records: [], serverTime: Date.now() };
   var vals = sh.getRange(2, 1, sh.getLastRow() - 1, HEADER.length).getValues();
   var recs = {};
   vals.forEach(function (row) {
@@ -243,7 +264,7 @@ function readAll_() {
     var v = Number(row[COL.votes]) || 0;
     if (parts[2] === '無效') r.invalid = v; else r.votes[parts[2]] = v;
   });
-  return { ok: true, records: Object.keys(recs).map(function (k) { return recs[k]; }), serverTime: Date.now() };
+  return { ok: true, town: town, records: Object.keys(recs).map(function (k) { return recs[k]; }), serverTime: Date.now() };
 }
 
 /* ---------- 後台歸零（試算表上方選單「開票工具」） ---------- */
@@ -257,12 +278,21 @@ function onOpen() {
     .addToUi();
 }
 
+// 歸零的對象＝目前點到的分頁所屬的鄉鎮市（分頁名稱開頭是「礁溪鄉 」就是礁溪鄉；其他都算宜蘭市）
+function activeTown_() {
+  var name = String(SpreadsheetApp.getActiveSheet().getName());
+  for (var i = 0; i < TOWN_LIST.length; i++) {
+    if (TOWN_LIST[i] !== DEFAULT_TOWN && name.indexOf(TOWN_LIST[i] + ' ') === 0) return TOWN_LIST[i];
+  }
+  return DEFAULT_TOWN;
+}
+
 // match(row)：這一列要不要歸零。dryRun=true 只計算有幾筆（投開票所×選舉），不改任何資料。
-function resetRows_(match, dryRun) {
+function resetRows_(town, match, dryRun) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DETAIL);
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(detailName_(town));
     if (!sh || sh.getLastRow() < 2) return 0;
     var rng = sh.getRange(2, 1, sh.getLastRow() - 1, HEADER.length);
     var vals = rng.getValues();
@@ -281,7 +311,7 @@ function resetRows_(match, dryRun) {
       row[COL.ms] = now;
     });
     var n = Object.keys(hit).length;
-    if (n && !dryRun) { rng.setValues(vals); cacheClear_(); }
+    if (n && !dryRun) { rng.setValues(vals); cacheClear_(town); }
     return n;
   } finally {
     lock.releaseLock();
@@ -290,10 +320,11 @@ function resetRows_(match, dryRun) {
 
 function resetAll() {
   var ui = SpreadsheetApp.getUi();
-  var n = resetRows_(function () { return true; }, true);
-  if (!n) { ui.alert('目前沒有任何票數，不用歸零。'); return; }
-  var res = ui.prompt('全部歸零',
-    '⚠ 目前有 ' + n + ' 筆票數（投開票所 × 選舉，含合計）。\n\n'
+  var town = activeTown_();
+  var n = resetRows_(town, function () { return true; }, true);
+  if (!n) { ui.alert(town + '目前沒有任何票數，不用歸零。\n（要歸零別的鄉鎮市，請先點到那個鄉鎮市的分頁。）'); return; }
+  var res = ui.prompt(town + '：全部歸零',
+    '⚠ ' + town + '目前有 ' + n + ' 筆票數（投開票所 × 選舉，含合計）。\n只會清這個鄉鎮市，其他鄉鎮市不受影響。\n\n'
     + '歸零會全部清空，所有人的手機也會跟著變成「未開票」。\n'
     + '（萬一按錯，可用「檔案 → 版本記錄」找回。）\n\n'
     + '要繼續，請輸入：我要清空', ui.ButtonSet.OK_CANCEL);
@@ -301,39 +332,40 @@ function resetAll() {
     ui.alert('已取消，沒有動到任何資料。');
     return;
   }
-  var done = resetRows_(function () { return true; }, false);
-  ui.alert('完成，已歸零 ' + done + ' 筆。\n大家的手機約 20 秒內會自動跟著變成「未開票」。');
+  var done = resetRows_(town, function () { return true; }, false);
+  ui.alert('完成，' + town + '已歸零 ' + done + ' 筆。\n大家的手機約 20 秒內會自動跟著變成「未開票」。');
 }
 
 function resetOne() {
   var ui = SpreadsheetApp.getUi();
-  var a = ui.prompt('歸零某一個投開票所',
-    '請輸入投開票所編號，例如 0015。\n（合計請輸入：ALL＝全市，D1～D4＝選舉區，V:七結里＝里）', ui.ButtonSet.OK_CANCEL);
+  var town = activeTown_();
+  var a = ui.prompt(town + '：歸零某一個投開票所',
+    '請輸入' + town + '的投開票所編號，例如 0015。\n（合計請輸入：ALL＝全市，D1～D4＝選舉區，V:七結里＝里）', ui.ButtonSet.OK_CANCEL);
   if (a.getSelectedButton() !== ui.Button.OK) return;
   var id = String(a.getResponseText()).trim();
   if (/^\d+$/.test(id)) id = ('0000' + id).slice(-4);
   if (!id) { ui.alert('沒有輸入編號。'); return; }
   var b = ui.prompt('要歸零哪一項？',
-    '輸入：市長、市民代表、里長、縣長、縣議員 其中一個。\n留空 ＝ 這一所的所有項目。', ui.ButtonSet.OK_CANCEL);
+    '輸入其中一個：市長（或鎮長、鄉長）、代表、里長（或村長）、縣長、縣議員。\n留空 ＝ 這一所的所有項目。', ui.ButtonSet.OK_CANCEL);
   if (b.getSelectedButton() !== ui.Button.OK) return;
   var raceText = String(b.getResponseText()).trim();
   var match = function (row) {
     return String(row[COL.id]) === id && (!raceText || String(row[COL.race]).indexOf(raceText) >= 0);
   };
-  var n = resetRows_(match, true);
-  if (!n) { ui.alert('找不到「' + id + (raceText ? ' ' + raceText : '') + '」有填過的票數。\n請確認編號、項目有沒有打對。'); return; }
-  var ok = ui.alert('確定歸零？', id + (raceText ? '　' + raceText : '　全部項目') + '，共 ' + n + ' 筆。\n歸零後所有人的手機也會跟著變成「未開票」。', ui.ButtonSet.YES_NO);
+  var n = resetRows_(town, match, true);
+  if (!n) { ui.alert(town + '找不到「' + id + (raceText ? ' ' + raceText : '') + '」有填過的票數。\n請確認編號、項目有沒有打對。'); return; }
+  var ok = ui.alert('確定歸零？', town + '　' + id + (raceText ? '　' + raceText : '　全部項目') + '，共 ' + n + ' 筆。\n歸零後所有人的手機也會跟著變成「未開票」。', ui.ButtonSet.YES_NO);
   if (ok !== ui.Button.YES) { ui.alert('已取消，沒有動到任何資料。'); return; }
-  ui.alert('完成，已歸零 ' + resetRows_(match, false) + ' 筆。');
+  ui.alert('完成，已歸零 ' + resetRows_(town, match, false) + ' 筆。');
 }
 
 /* ---------- 彙總分頁（各候選人全市／各選區得票，用公式即時計算） ---------- */
 
-function buildSummary_(groups) {
+function buildSummary_(town, groups) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(SUMMARY) || ss.insertSheet(SUMMARY);
+  var sh = ss.getSheetByName(summaryName_(town)) || ss.insertSheet(summaryName_(town));
   sh.clear();
-  var T = "'" + DETAIL + "'!";
+  var T = "'" + detailName_(town) + "'!";
   function rng(c) { var L = String.fromCharCode(65 + c); return T + '$' + L + '$2:$' + L + '$' + MAX_ROWS; }
   var out = [['選舉', '選區／範圍', '應選', '完成所數', '號次', '候選人', '政黨', '各所加總', '得票率', '手動合計']];
   var NOTSUM = rng(COL.kind) + ',"<>合計"'; // 各所加總不含手動合計列
