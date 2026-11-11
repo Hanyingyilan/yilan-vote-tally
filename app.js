@@ -77,16 +77,18 @@
   // 網頁內的確認視窗：取代瀏覽器內建的 confirm／prompt（字大、按鈕大；LINE 等內建瀏覽器擋掉內建視窗時也能用）
   // 一般：回傳 true／false。有 input：回傳輸入的文字，取消回傳 null。
   let askResolve = null;
-  function ask({ title, html = "", ok = "確定", cancel = "取消", danger = false, input = "" }) {
+  // required：有輸入格時，沒填不能按確定（用在「第一次送出要填名字」）
+  function ask({ title, html = "", ok = "確定", cancel = "取消", danger = false, input = "", inputLabel = "", required = false }) {
     if (askResolve) answerAsk(false);
     const dlg = $("#ask");
     dlg.innerHTML = `<form class="askform" novalidate>
       <h2 id="askTitle">${esc(title)}</h2>
       <div class="ask-body">${html}</div>
-      ${input ? `<input id="askInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${esc(input)}" aria-label="${esc(input)}">` : ""}
+      ${input ? `${inputLabel ? `<label class="ask-label" for="askInput">${esc(inputLabel)}</label>` : ""}<input id="askInput" type="text" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${esc(input)}" aria-label="${esc(inputLabel || input)}"><p class="ask-err" id="askErr" role="alert" hidden></p>` : ""}
       <div class="ask-btns"><button type="button" class="btn" data-act="askNo">${esc(cancel)}</button><button type="button" class="btn ${danger ? "danger-fill" : "primary"}" data-act="askYes">${esc(ok)}</button></div>
     </form>`;
     dlg.dataset.input = input ? "1" : "";
+    dlg.dataset.required = required ? "1" : "";
     if (!dlg.open) dlg.showModal();
     return new Promise((res) => { askResolve = res; });
   }
@@ -94,6 +96,13 @@
     const dlg = $("#ask");
     const hasInput = dlg.dataset.input === "1";
     const val = hasInput ? ($("#askInput")?.value ?? "") : true;
+    if (yes && hasInput && dlg.dataset.required === "1" && !String(val).trim()) {
+      const err = $("#askErr");
+      err.textContent = "請先填名字，才能送出";
+      err.hidden = false;
+      $("#askInput").focus();
+      return;
+    }
     if (dlg.open) dlg.close();
     const r = askResolve;
     askResolve = null;
@@ -432,7 +441,7 @@
   async function saveEditor() {
     const id = ui.editId;
     const cur = byId[id];
-    const by = $("[data-by]").value.trim();
+    let by = $("[data-by]").value.trim();
     const sum = (o) => Object.values(o).reduce((x, y) => x + y, 0);
     const todo = [];
     for (const key of edTouched) {
@@ -473,13 +482,22 @@
         ? `<p class="ask-where"><b>${esc(cur.name)}</b><span>合計</span></p>`
         : `<p class="ask-where"><b>${cur.id}　${esc(cur.name)}</b><span>${esc(cur.village)}　鄰 ${esc(cur.neighbors)}</span></p>`;
       const lines = todo.map(([key, d]) => `<li><span>${esc(raceByKey[key].label)}</span><span class="st-status" data-s="${d.status}">${STATUS[d.status]}</span><b>${fmt(d.total)} 票</b></li>`).join("");
+      // 這支手機還沒填過名字：在同一個視窗請他填（只問這一次，之後會記住）
+      const needName = !by;
       const yes = await ask({
         title: "是這一所嗎？",
         html: `${where}<ul class="ask-list">${lines}</ul>${warns.length ? `<ul class="ask-warn">${warns.map((w) => `<li>${w}</li>`).join("")}</ul>` : ""}`,
         ok: warns.length ? "照這樣送出" : "確定送出",
         cancel: "回去修改",
+        input: needName ? "例如 王小明" : "",
+        inputLabel: needName ? "你的名字（只要填這一次）" : "",
+        required: needName,
       });
       if (!yes) return false;
+      if (needName) {
+        by = String(yes).trim();
+        $("[data-by]").value = by;
+      }
     }
     const now = Date.now();
     for (const [key, d] of todo) {

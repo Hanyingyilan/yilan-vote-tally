@@ -234,6 +234,8 @@ dialog#pw, dialog#ask { width: 92vw; max-width: 460px; height: auto; height: fit
 .ask-list li b { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .ask-warn { list-style: none; margin: 0; padding: 10px 14px; background: var(--accent-soft); border: 2px solid var(--accent); border-radius: var(--radius); color: var(--accent); font-size: 19px; font-weight: 600; display: grid; gap: 8px; }
 .ask-warn li::before { content: "⚠ "; }
+.ask-label { font-size: 20px; font-weight: 700; margin-bottom: -8px; }
+.ask-err { color: var(--danger); font-size: 19px; font-weight: 700; margin-top: -6px; }
 .ask-btns { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; }
 .ask-btns .btn { min-height: 60px; font-size: 21px; white-space: nowrap; padding: 8px 6px; }
 
