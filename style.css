@@ -114,6 +114,9 @@ select { width: auto; }
 .dist-head .meta b { color: var(--ink); font-size: 22px; }
 .bar { flex-basis: 100%; height: 8px; margin-top: 6px; background: var(--soft); border-radius: 4px; overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--done); }
+/* 上次回報的投開票所：放最上面 */
+.lastrep { margin-top: 14px; padding: 10px 12px 12px; background: var(--surface); border: 2px solid var(--ink); border-radius: 12px; }
+.lastrep h2 { font-size: 20px; font-weight: 800; margin-bottom: 8px; }
 .village { margin-top: 16px; }
 .village h3 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
 .village h3 small { font-weight: 400; color: var(--muted); font-size: 16px; margin-left: 6px; }
@@ -172,15 +175,7 @@ dialog#pw, dialog#ask { width: 92vw; max-width: 460px; height: auto; height: fit
 .panel-title small { display: block; font-weight: 400; color: var(--muted); font-size: 17px; }
 .last { font-size: 17px; color: var(--muted); background: var(--soft); border-radius: 6px; padding: 6px 10px; }
 .last b { color: var(--ink); }
-/* 狀態按鈕選到哪個就亮那個狀態的顏色，和清單左邊的色條一致 */
-.status-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.status-seg label { position: relative; }
-.status-seg input { position: absolute; opacity: 0; top: 0; left: 0; width: 100%; height: 100%; margin: 0; }
-.status-seg span { display: grid; place-items: center; min-height: 48px; border: 1px solid var(--line-strong); border-radius: var(--radius); font-weight: 700; background: var(--surface); color: var(--muted); }
-.status-seg input:checked + span { background: var(--pending); color: #fff; border-color: var(--pending); }
-.status-seg label[data-s="counting"] input:checked + span { background: var(--counting-mark); border-color: var(--counting-mark); color: #1f1300; }
-.status-seg label[data-s="done"] input:checked + span { background: var(--done); border-color: var(--done); }
-.status-seg input:focus-visible + span { outline: 3px solid var(--ink); outline-offset: 2px; }
+.last .st-status { display: inline; font-size: inherit; }
 .fields { display: grid; gap: 10px; }
 .field { display: grid; grid-template-columns: minmax(0, 1fr) 132px; align-items: center; gap: 12px; }
 .field .f-name { display: flex; align-items: center; min-width: 0; }
@@ -230,12 +225,19 @@ dialog#pw, dialog#ask { width: 92vw; max-width: 460px; height: auto; height: fit
 .ask-where b { display: block; font-size: 28px; font-weight: 800; line-height: 1.3; }
 .ask-where span { display: block; font-size: 18px; color: var(--muted); }
 .ask-list { list-style: none; margin: 0; padding: 0; }
-.ask-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: baseline; padding: 8px 2px; border-bottom: 1px solid var(--line); }
+.ask-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 8px 2px; border-bottom: 1px solid var(--line); }
 .ask-list li b { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .ask-warn { list-style: none; margin: 0; padding: 10px 14px; background: var(--accent-soft); border: 2px solid var(--accent); border-radius: var(--radius); color: var(--accent); font-size: 19px; font-weight: 600; display: grid; gap: 8px; }
 .ask-warn li::before { content: "⚠ "; }
 .ask-label { font-size: 20px; font-weight: 700; margin-bottom: -8px; }
 .ask-err { color: var(--danger); font-size: 19px; font-weight: 700; margin-top: -6px; }
+.ask-list li b.to-pending { font-size: 20px; color: var(--danger); }
+.ask-q { font-size: 24px; font-weight: 800; text-align: center; }
+.ask-choices { display: grid; gap: 10px; }
+.ask-choices .btn { min-height: 64px; font-size: 22px; }
+.ask-choices .btn[data-act="askNo"] { min-height: 52px; font-size: 20px; }
+.btn.s-done { background: var(--done); color: #fff; border-color: var(--done); }
+.btn.s-counting { background: var(--counting-mark); color: #1f1300; border-color: var(--counting-mark); }
 .ask-btns { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; }
 .ask-btns .btn { min-height: 60px; font-size: 21px; white-space: nowrap; padding: 8px 6px; }
 

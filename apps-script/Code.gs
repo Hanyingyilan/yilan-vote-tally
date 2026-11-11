@@ -8,6 +8,7 @@
  *  3. 部署 → 新增部署作業 → 網頁應用程式：執行身分「我」，存取權「任何人」。
  *
  * 讀取（GET）不需要密碼；寫入（POST）一定要密碼。
+ * 填表人的名字不公開：不帶密碼的讀取（GET）拿不到名字；帶密碼的讀取（POST action=read）才有。
  * 讀取結果會快取 15 秒（有人寫入或歸零時立刻清掉），很多人同時看統計頁也不會把後端擠爆。
  *
  * 試算表格式（「得票明細」分頁，長表）：
@@ -35,25 +36,41 @@ function doGet(e) {
   try {
     var action = (e && e.parameter && e.parameter.action) || 'all';
     if (action !== 'all') return json_({ ok: false, error: 'unknown action' });
-    var text = cacheGet_();
-    if (!text) {
-      text = JSON.stringify(readAll_());
-      cachePut_(text);
-    }
-    return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
+    return textOut_(readCached_(false)); // 公開讀取：不含填表人名字
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
 }
 
+function textOut_(text) {
+  return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
+}
+
+// withNames=true：含填表人名字（只給有密碼的人）；false：名字一律清空（公開）
+function readCached_(withNames) {
+  var kind = withNames ? 'full' : 'pub';
+  var text = cacheGet_(kind);
+  if (text) return text;
+  var data = readAll_();
+  if (!withNames) data.records.forEach(function (r) { r.by = ''; });
+  text = JSON.stringify(data);
+  cachePut_(kind, text);
+  return text;
+}
+
 function doPost(e) {
-  var lock = LockService.getScriptLock();
+  var lock = null;
   try {
-    lock.waitLock(20000);
     var body = JSON.parse(e.postData.contents);
     var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
     if (!token) return json_({ ok: false, error: '尚未在「指令碼屬性」設定 TOKEN' });
     if (body.token !== token) return json_({ ok: false, error: '同步密碼不正確' });
+
+    // 帶密碼的讀取：含填表人名字。只讀不寫，所以不用排隊
+    if (body.action === 'read') return textOut_(readCached_(true));
+
+    lock = LockService.getScriptLock();
+    lock.waitLock(20000);
 
     if (body.action === 'upsertMany') {
       var count = write_(body.records || [], false);
@@ -70,21 +87,22 @@ function doPost(e) {
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   } finally {
-    try { lock.releaseLock(); } catch (x) { /* ignore */ }
+    try { if (lock) lock.releaseLock(); } catch (x) { /* ignore */ }
   }
 }
 
 /* ---------- 讀取快取 ---------- */
 // 整份資料可能超過單筆快取上限，所以切成幾段存；每次存都換一個新的批號，避免讀到新舊混在一起的段落。
 
-function cacheGet_() {
+// kind：'pub'＝公開版（沒有名字）、'full'＝完整版（有名字），兩份分開存
+function cacheGet_(kind) {
   try {
     var c = CacheService.getScriptCache();
-    var head = c.get('all:head'); // 「批號|段數」
+    var head = c.get(kind + ':head'); // 「批號|段數」
     if (!head) return null;
     var p = head.split('|'), stamp = p[0], n = Number(p[1]);
     var keys = [];
-    for (var i = 0; i < n; i++) keys.push('all:' + stamp + ':' + i);
+    for (var i = 0; i < n; i++) keys.push(kind + ':' + stamp + ':' + i);
     var parts = c.getAll(keys), out = '';
     for (var j = 0; j < n; j++) {
       var s = parts[keys[j]];
@@ -97,19 +115,19 @@ function cacheGet_() {
   }
 }
 
-function cachePut_(text) {
+function cachePut_(kind, text) {
   try {
     var c = CacheService.getScriptCache();
     var stamp = String(Date.now()) + Math.floor(Math.random() * 1000);
     var n = Math.ceil(text.length / CACHE_CHUNK), obj = {};
-    for (var i = 0; i < n; i++) obj['all:' + stamp + ':' + i] = text.substr(i * CACHE_CHUNK, CACHE_CHUNK);
+    for (var i = 0; i < n; i++) obj[kind + ':' + stamp + ':' + i] = text.substr(i * CACHE_CHUNK, CACHE_CHUNK);
     c.putAll(obj, CACHE_SEC + 5);
-    c.put('all:head', stamp + '|' + n, CACHE_SEC);
+    c.put(kind + ':head', stamp + '|' + n, CACHE_SEC);
   } catch (err) { /* 快取失敗就算了，下次直接讀試算表 */ }
 }
 
 function cacheClear_() {
-  try { CacheService.getScriptCache().remove('all:head'); } catch (err) { /* ignore */ }
+  try { CacheService.getScriptCache().removeAll(['pub:head', 'full:head']); } catch (err) { /* ignore */ }
 }
 
 /* ---------- 工作表 ---------- */

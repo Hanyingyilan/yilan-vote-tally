@@ -78,25 +78,28 @@
   // 一般：回傳 true／false。有 input：回傳輸入的文字，取消回傳 null。
   let askResolve = null;
   // required：有輸入格時，沒填不能按確定（用在「第一次送出要填名字」）
-  function ask({ title, html = "", ok = "確定", cancel = "取消", danger = false, input = "", inputLabel = "", required = false }) {
+  // choices：[{ label, value, cls }]，給了就變成一排大按鈕，回傳 { choice, text }
+  function ask({ title, html = "", ok = "確定", cancel = "取消", danger = false, input = "", inputLabel = "", required = false, choices = null, question = "" }) {
     if (askResolve) answerAsk(false);
     const dlg = $("#ask");
-    dlg.innerHTML = `<form class="askform" novalidate>
-      <h2 id="askTitle">${esc(title)}</h2>
-      <div class="ask-body">${html}</div>
-      ${input ? `${inputLabel ? `<label class="ask-label" for="askInput">${esc(inputLabel)}</label>` : ""}<input id="askInput" type="text" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${esc(input)}" aria-label="${esc(inputLabel || input)}"><p class="ask-err" id="askErr" role="alert" hidden></p>` : ""}
-      <div class="ask-btns"><button type="button" class="btn" data-act="askNo">${esc(cancel)}</button><button type="button" class="btn ${danger ? "danger-fill" : "primary"}" data-act="askYes">${esc(ok)}</button></div>
-    </form>`;
+    const inputHtml = input ? `${inputLabel ? `<label class="ask-label" for="askInput">${esc(inputLabel)}</label>` : ""}<input id="askInput" type="text" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${esc(input)}" aria-label="${esc(inputLabel || input)}"><p class="ask-err" id="askErr" role="alert" hidden></p>` : "";
+    const btns = choices
+      ? `<div class="ask-choices">${choices.map((c) => `<button type="button" class="btn ${c.cls || "primary"}" data-act="askYes" data-val="${esc(c.value)}">${esc(c.label)}</button>`).join("")}<button type="button" class="btn" data-act="askNo">${esc(cancel)}</button></div>`
+      : `<div class="ask-btns"><button type="button" class="btn" data-act="askNo">${esc(cancel)}</button><button type="button" class="btn ${danger ? "danger-fill" : "primary"}" data-act="askYes">${esc(ok)}</button></div>`;
+    dlg.innerHTML = `<form class="askform" novalidate><h2 id="askTitle">${esc(title)}</h2><div class="ask-body">${html}</div>${inputHtml}${question ? `<p class="ask-q">${esc(question)}</p>` : ""}${btns}</form>`;
     dlg.dataset.input = input ? "1" : "";
     dlg.dataset.required = required ? "1" : "";
+    dlg.dataset.choices = choices ? "1" : "";
     if (!dlg.open) dlg.showModal();
     return new Promise((res) => { askResolve = res; });
   }
-  function answerAsk(yes) {
+  function answerAsk(yes, choice) {
     const dlg = $("#ask");
     const hasInput = dlg.dataset.input === "1";
-    const val = hasInput ? ($("#askInput")?.value ?? "") : true;
-    if (yes && hasInput && dlg.dataset.required === "1" && !String(val).trim()) {
+    const hasChoices = dlg.dataset.choices === "1";
+    const text = hasInput ? ($("#askInput")?.value ?? "") : "";
+    if (yes && hasChoices && choice == null) return; // 在輸入格按 Enter：要按下面的按鈕才算
+    if (yes && hasInput && dlg.dataset.required === "1" && !String(text).trim()) {
       const err = $("#askErr");
       err.textContent = "請先填名字，才能送出";
       err.hidden = false;
@@ -106,7 +109,9 @@
     if (dlg.open) dlg.close();
     const r = askResolve;
     askResolve = null;
-    if (r) r(yes ? val : hasInput ? null : false);
+    if (!r) return;
+    if (!yes) return r(hasInput && !hasChoices ? null : false);
+    r(hasChoices ? { choice, text } : hasInput ? text : true);
   }
   // 舊手機（iOS 15.3 以前）沒有 <dialog> 視窗功能：改用一般的浮層。網址加 ?nodialog=1 可以強制用這個模式測試。
   function polyfillDialogs() {
@@ -134,7 +139,10 @@
   const partyTag = (c) => (c.party ? `<small>${esc(c.party)}</small>` : "");
 
   /* ---------- 狀態（localStorage） ---------- */
-  let state = { records: {}, dirty: {}, settings: { url: "", token: "", by: "", race: "mayor" }, lastSync: 0 };
+  // mine：這支手機自己送出的紀錄（key → 當時的更新時間），用來分辨「這筆是不是別人填的」
+  let state = { records: {}, dirty: {}, mine: {}, settings: { url: "", token: "", by: "", race: "mayor", lastId: "" }, lastSync: 0 };
+  // 填表人的名字不公開：只有輸入過密碼的裝置才顯示
+  const nameOf = (r) => (state.settings.token && r?.by ? r.by : "");
   const rk = (id, race) => `${id}|${race}`;
   const getRec = (id, race) => state.records[rk(id, race)];
   function loadState() {
@@ -267,13 +275,13 @@
     if (!q) return true;
     return [s.id, String(+s.id), s.name, s.village, s.address, `第${s.district}選舉區`].some((t) => t.includes(q));
   }
-  function stationButton(s) {
+  function stationButton(s, withVillage = false) {
     const r = getRec(s.id, ui.race);
     const st = r?.status || "pending";
     const k = calc(r);
     return `<li><button type="button" class="st" data-id="${s.id}" data-s="${st}">
       <span class="sid">${s.id}</span>
-      <span class="st-main"><span class="name">${esc(s.name)}</span><span class="sub">鄰 ${esc(s.neighbors)}</span></span>
+      <span class="st-main"><span class="name">${esc(s.name)}</span><span class="sub">${withVillage ? `${esc(s.village)}　` : ""}鄰 ${esc(s.neighbors)}</span></span>
       <span class="right"><span class="st-status" data-s="${st}">${STATUS[st]}</span>${st !== "pending" ? `<span class="tot">${fmt(k.total)} 票</span>` : ""}</span>
     </button></li>`;
   }
@@ -339,7 +347,11 @@
         </div>${groups.join("")}</section>`);
     }
     const head = race.key === "council" ? `<p class="sumline racenote"><b>宜蘭縣議員　${esc(councilArea)}${seatTag(race, race.groups.all)}</b><span>這裡登錄的是宜蘭市內各投開票所的票數</span></p>` : "";
-    $("#list").innerHTML = html.length ? head + html.join("") : `<p class="empty">沒有符合的投開票所</p>`;
+    // 這支手機上次回報的投開票所放最上面，不用每次從 82 所裡找
+    const lastS = byId[state.settings.lastId];
+    const lastHtml = lastS && !lastS.kind && race.applies(lastS) && !ui.q.trim()
+      ? `<section class="lastrep"><h2>上次回報的</h2><ul class="stations">${stationButton(lastS, true)}</ul></section>` : "";
+    $("#list").innerHTML = html.length ? lastHtml + head + html.join("") : `<p class="empty">沒有符合的投開票所</p>`;
   }
 
   /* ---------- 編輯視窗 ---------- */
@@ -351,16 +363,20 @@
     return `<label class="field"><span class="f-name"><span class="f-no">${esc(c.no)}</span><span class="f-who">${esc(c.name)}${partyTag(c)}</span></span>
       <input type="text" inputmode="numeric" pattern="[0-9]*" data-vote="${esc(c.no)}" value="${rec?.votes?.[c.no] ?? ""}" placeholder="0" aria-label="${esc(c.name)} 得票數"></label>`;
   }
+  // 表單上方那一行：目前狀態＋上次是誰、幾點填的
+  function panelInfo(rec) {
+    const st = rec?.status || "pending";
+    if (!rec || st === "pending") return "還沒有人填過這一項";
+    const who = nameOf(rec);
+    return `目前：<span class="st-status" data-s="${st}">${STATUS[st]}</span>　上次填寫：${who ? `<b>${esc(who)}</b>　` : ""}${hhmm(rec.updatedAt)}`;
+  }
   function racePanel(race, s) {
     const g = groupOf(race, s);
     const rec = getRec(s.id, race.key);
     const st = rec?.status || "pending";
     return `<div class="panel" data-race="${race.key}" ${race.key === edRace ? "" : "hidden"}>
       <p class="panel-title">${race.key === "council" ? `宜蘭縣議員　${esc(councilArea)}` : `${esc(race.full)}${race.scope !== "all" ? `　${esc(g.label)}` : ""}`}${seatTag(race, g)} <small>${multiSeat(race) ? "" : `應選 ${g.seats} 席，`}${g.cands.length === 1 ? "同額競選" : `${g.cands.length} 位候選人`}</small></p>
-      ${rec && st !== "pending" ? `<p class="last">上次填寫：${rec.by ? `<b>${esc(rec.by)}</b>　` : ""}${hhmm(rec.updatedAt)}</p>` : ""}
-      <div class="status-seg" role="radiogroup" aria-label="${esc(race.label)}開票狀態">
-        ${Object.entries(STATUS).map(([k, label]) => `<label data-s="${k}"><input type="radio" name="status-${race.key}" value="${k}" ${k === st ? "checked" : ""}><span>${label}</span></label>`).join("")}
-      </div>
+      <p class="last" data-info>${panelInfo(rec)}</p>
       <div class="fields">
         ${g.cands.map((c) => candField(race, c, rec)).join("") || `<p class="note">這個範圍沒有登記的候選人。</p>`}
         <label class="field sub"><span class="f-name"><span class="f-who">無效票</span></span>
@@ -428,7 +444,7 @@
     }
     const inv = toInt($("[data-invalid]", panel).value);
     if (inv == null) blank++;
-    return { votes, invalid: inv ?? 0, blank, status: $(`input[name=status-${panel.dataset.race}]:checked`, panel).value };
+    return { votes, invalid: inv ?? 0, blank, fields: Object.keys(votes).length + 1 };
   }
   function updateCalc(panel) {
     if (!panel) return;
@@ -443,59 +459,72 @@
     const cur = byId[id];
     let by = $("[data-by]").value.trim();
     const sum = (o) => Object.values(o).reduce((x, y) => x + y, 0);
+    const panelOf = (key) => $(`#edForm .panel[data-race="${key}"]`);
+    const keys = new Set(edTouched);
+    // 數字沒改、只是要把「還在開」改成「開完了」：目前看的這一項有數字的話，也可以直接送
+    if (!keys.size && $$("[data-vote],[data-invalid]", panelOf(edRace)).some((i) => i.value.trim() !== "")) keys.add(edRace);
     const todo = [];
-    for (const key of edTouched) {
-      const d = readPanel($(`#edForm .panel[data-race="${key}"]`));
-      // 沒選狀態但已經填了數字，就當成「開票中」
-      if (d.status === "pending" && (sum(d.votes) > 0 || d.invalid > 0)) d.status = "counting";
+    for (const key of keys) {
+      const d = readPanel(panelOf(key));
       d.total = sum(d.votes) + d.invalid;
+      d.empty = d.blank === d.fields; // 每一格都清空＝把這一項變回「未開票」
       todo.push([key, d]);
     }
-    // 送出前只問一次：確認是哪一所、各項幾票，有不合理的地方一起列出來
+    // 送出前只問一次：是哪一所、各項幾票、開完了沒；有不合理的地方一起列出來
     if (todo.length) {
+      const allEmpty = todo.every(([, d]) => d.empty);
       const warns = [];
       for (const [key, d] of todo) {
         const label = esc(raceByKey[key].label);
-        if (d.status === "done" && d.blank > 0) warns.push(`「${label}」還有 ${d.blank} 格沒填，會當成 0。`);
+        const old = getRec(id, key);
+        const k = rk(id, key);
+        const mineByName = !!by && !!old?.by && old.by === by;
+        if (old && old.status !== "pending" && (old.updatedAt !== edSnap[key] || (state.mine[k] !== old.updatedAt && !mineByName))) {
+          const who = nameOf(old);
+          warns.push(`「${label}」<b>${who ? esc(who) : "別人"}</b>在 ${hhmm(old.updatedAt)} 填過。送出後會蓋掉原本的數字。`);
+        }
+        if (d.empty) continue;
+        if (d.blank > 0) warns.push(`「${label}」還有 ${d.blank} 格沒填，會當成 0。`);
         if (d.total > limitFor(cur)) {
           const hist = fmt(HIST_MAX * (cur.kind ? scopeStations(cur).length : 1));
           warns.push(`「${label}」共 <b>${fmt(d.total)}</b> 票，數字很大。${cur.kind ? "這個範圍" : "歷年最多的一個投開票所"}大約 ${hist} 票，有沒有多打一個數字？`);
         }
-        if (!cur.kind && d.status === "done") {
+        if (!cur.kind) {
           for (const r2 of racesOf(cur)) {
             if (r2.key === key) continue;
             const x = getRec(id, r2.key);
             if (!x || x.status !== "done") continue;
             const ref = calc(x).total;
             if (ref >= 100 && Math.abs(d.total - ref) / ref > 0.35) {
-              warns.push(`「${label}」${fmt(d.total)} 票，和這一所的「${esc(r2.label)}」${fmt(ref)} 票差很多。`);
+              warns.push(`如果「${label}」已經開完：${fmt(d.total)} 票，和這一所的「${esc(r2.label)}」${fmt(ref)} 票差很多，請再核對。`);
               break;
             }
           }
-        }
-        const old = getRec(id, key);
-        if (old && old.status !== "pending" && (old.updatedAt !== edSnap[key] || (old.by && old.by !== by))) {
-          warns.push(`「${label}」<b>${old.by ? esc(old.by) : "別人"}</b>在 ${hhmm(old.updatedAt)} 填過。送出後會蓋掉原本的數字。`);
         }
       }
       const where = cur.kind
         ? `<p class="ask-where"><b>${esc(cur.name)}</b><span>合計</span></p>`
         : `<p class="ask-where"><b>${cur.id}　${esc(cur.name)}</b><span>${esc(cur.village)}　鄰 ${esc(cur.neighbors)}</span></p>`;
-      const lines = todo.map(([key, d]) => `<li><span>${esc(raceByKey[key].label)}</span><span class="st-status" data-s="${d.status}">${STATUS[d.status]}</span><b>${fmt(d.total)} 票</b></li>`).join("");
+      const lines = todo.map(([key, d]) => `<li><span>${esc(raceByKey[key].label)}</span>${d.empty ? `<b class="to-pending">清空，變回未開票</b>` : `<b>${fmt(d.total)} 票</b>`}</li>`).join("");
+      const warnHtml = warns.length ? `<ul class="ask-warn">${warns.map((w) => `<li>${w}</li>`).join("")}</ul>` : "";
       // 這支手機還沒填過名字：在同一個視窗請他填（只問這一次，之後會記住）
       const needName = !by;
-      const yes = await ask({
+      const ans = await ask({
         title: "是這一所嗎？",
-        html: `${where}<ul class="ask-list">${lines}</ul>${warns.length ? `<ul class="ask-warn">${warns.map((w) => `<li>${w}</li>`).join("")}</ul>` : ""}`,
-        ok: warns.length ? "照這樣送出" : "確定送出",
+        html: `${where}<ul class="ask-list">${lines}</ul>${warnHtml}`,
+        question: allEmpty ? "" : "票開完了嗎？",
         cancel: "回去修改",
         input: needName ? "例如 王小明" : "",
         inputLabel: needName ? "你的名字（只要填這一次）" : "",
         required: needName,
+        choices: allEmpty
+          ? [{ label: "清空這一所", value: "pending", cls: "danger-fill" }]
+          : [{ label: "開完了，送出", value: "done", cls: "s-done" }, { label: "還在開，先送出目前的", value: "counting", cls: "s-counting" }],
       });
-      if (!yes) return false;
+      if (!ans) return false;
+      for (const [, d] of todo) d.status = d.empty ? "pending" : ans.choice;
       if (needName) {
-        by = String(yes).trim();
+        by = String(ans.text).trim();
         $("[data-by]").value = by;
       }
     }
@@ -503,11 +532,13 @@
     for (const [key, d] of todo) {
       state.records[rk(id, key)] = { id, race: key, votes: d.votes, invalid: d.invalid, electors: state.records[rk(id, key)]?.electors ?? null, status: d.status, by, updatedAt: now };
       state.dirty[rk(id, key)] = true;
+      state.mine[rk(id, key)] = now;
       edSnap[key] = now;
-      const radio = $(`#edForm input[name="status-${key}"][value="${d.status}"]`);
-      if (radio) radio.checked = true;
+      const info = $("[data-info]", $(`#edForm .panel[data-race="${key}"]`));
+      if (info) info.innerHTML = panelInfo(state.records[rk(id, key)]);
     }
     if (by) state.settings.by = by;
+    if (todo.length && !cur.kind) state.settings.lastId = id;
     saveState();
     edDirty = false; edTouched = new Set();
     // 儲存後留在原頁，清楚顯示「已儲存」，不自動跳到別的投開票所
@@ -630,7 +661,7 @@
         if (m !== s2) diff = true;
         return `<span class="cmp">${circ(c.no)}${esc(c.name)} <b>${fmt(m)}</b> ／ ${fmt(s2)}${m !== s2 ? `<em>差 ${m - s2 > 0 ? "+" : ""}${fmt(m - s2)}</em>` : ""}</span>`;
       });
-      rows.push(`<tr><td>${esc(sc.name)}<br><small class="muted">${r.by ? esc(r.by) + "　" : ""}${hhmm(r.updatedAt)}</small></td>
+      rows.push(`<tr><td>${esc(sc.name)}<br><small class="muted">${nameOf(r) ? esc(nameOf(r)) + "　" : ""}${hhmm(r.updatedAt)}</small></td>
         <td><span class="badge" data-s="${r.status}">${STATUS[r.status]}</span></td><td class="left wrap">${parts.join("")}</td>
         <td>${diff ? `<span class="diff">有差異</span>` : "一致"}</td></tr>`);
     }
@@ -648,7 +679,7 @@
     const flagIds = Object.keys(flags);
     const flagCard = flagIds.length ? `<section class="card flagcard"><h2>⚠ 需要確認的投開票所<small>${flagIds.length} 所</small></h2><ul class="flaglist">${flagIds.map((id) => {
       const s = byId[id], r = getRec(id, race.key);
-      return `<li><b>${id} ${esc(s.name)}</b>（${esc(s.village)}）<br>${flags[id].map(esc).join("；")}<br><small class="muted">${r.by ? esc(r.by) + "　" : ""}${hhmm(r.updatedAt)}</small>
+      return `<li><b>${id} ${esc(s.name)}</b>（${esc(s.village)}）<br>${flags[id].map(esc).join("；")}<br><small class="muted">${nameOf(r) ? esc(nameOf(r)) + "　" : ""}${hhmm(r.updatedAt)}</small>
         <button type="button" class="linkbtn" data-act="fix" data-id="${id}">去修改</button></li>`;
     }).join("")}</ul></section>` : "";
 
@@ -708,14 +739,14 @@
         const k = calc(r);
         const detail = st === "pending" ? "" : sortedCands(g, r.votes || {}).map((c) => `${circ(c.no)}${esc(c.name)} ${fmt(r.votes?.[c.no] || 0)}`).join("　");
         const fl = flags[s.id];
-        const who = r?.updatedAt && st !== "pending" ? `${r.by ? esc(r.by) + "<br>" : ""}<small class="muted">${hhmm(r.updatedAt)}</small>` : "";
+        const who = r?.updatedAt && st !== "pending" ? `${nameOf(r) ? esc(nameOf(r)) + "<br>" : ""}<small class="muted">${hhmm(r.updatedAt)}</small>` : "";
         return `<tr class="${fl ? "flag" : ""}"><td>${s.id} ${esc(s.name)}<br><small class="muted">${esc(s.village)} 鄰${esc(s.neighbors)}</small>${fl ? `<span class="flagtag">⚠ ${fl.map(esc).join("；")}</span>` : ""}</td><td><span class="badge" data-s="${st}">${STATUS[st]}</span></td>
           <td class="left wrap">${detail}</td><td>${st === "pending" ? "" : fmt(k.invalid)}</td><td>${st === "pending" ? "" : fmt(k.valid)}</td><td>${st === "pending" ? "" : fmt(k.total)}</td><td>${who}</td></tr>`;
       }).join("");
       return rows ? `<tr class="grp"><td colspan="7">第${d}選舉區${race.key === "rep" ? seatTag(race, race.groups[String(d)]) : ""}</td></tr>${rows}` : "";
     }).join("");
     const stTable = `<details class="card"><summary>${esc(race.label)}・全部投開票所明細（${list.length} 所）</summary><div class="tbl-wrap"><table>
-      <thead><tr><th>投開票所</th><th>狀態</th><th class="left">各候選人得票</th><th>無效票</th><th>有效票</th><th>投票數</th><th>填表人／時間</th></tr></thead><tbody>${stRows}</tbody></table></div></details>`;
+      <thead><tr><th>投開票所</th><th>狀態</th><th class="left">各候選人得票</th><th>無效票</th><th>有效票</th><th>投票數</th><th>${state.settings.token ? "填表人／時間" : "更新時間"}</th></tr></thead><tbody>${stRows}</tbody></table></div></details>`;
 
     const tools = `<section class="card"><h2>匯出與備份<small>含全部選舉</small></h2><div class="tools">
       <button type="button" class="btn" data-act="csv">下載明細 CSV</button>
@@ -810,6 +841,13 @@
     return res.json();
   }
   async function getAll() {
+    // 有密碼：用帶密碼的讀取，才拿得到填表人名字。密碼不對或後端還是舊版，就退回公開讀取。
+    if (state.settings.token) {
+      try {
+        const full = await post({ action: "read", token: state.settings.token });
+        if (full && full.ok) return full;
+      } catch (_) { /* 退回公開讀取 */ }
+    }
     const res = await fetch(syncUrl() + (syncUrl().includes("?") ? "&" : "?") + "action=all&t=" + Date.now(), { redirect: "follow" });
     return res.json();
   }
@@ -892,7 +930,7 @@
     }
     if (act === "stWipe") {
       if (!(await ask({ title: "清除這台裝置的資料？", html: `<p>只會清掉這支手機／這台電腦裡存的票數，雲端的資料不受影響。</p>`, ok: "清除", cancel: "取消", danger: true }))) return;
-      state.records = {}; state.dirty = {}; saveState(); renderAll(); $("#settings").close(); toast("已清除本機資料");
+      state.records = {}; state.dirty = {}; state.mine = {}; state.settings.lastId = ""; saveState(); renderAll(); $("#settings").close(); toast("已清除本機資料");
       return;
     }
     const cur = readSettings();
@@ -950,7 +988,7 @@
       const act = t.dataset.act;
       if (!act) return;
       if (act === "close") return closeEditor();
-      if (act === "askYes") return answerAsk(true);
+      if (act === "askYes") return answerAsk(true, t.dataset.val);
       if (act === "askNo") return answerAsk(false);
       if (act === "save") {
         saveEditor().then((ok) => { if (ok && ui.savedAt && !ui.savedAt.none && syncUrl() && !state.settings.token) openPasswordPrompt(); });
@@ -989,8 +1027,6 @@
     document.addEventListener("change", (e) => {
       if (e.target.id === "statusFilter") { ui.status = e.target.value; renderList(); }
       if (e.target.id === "importFile" && e.target.files[0]) { importJson(e.target.files[0]); e.target.value = ""; }
-      const panel = e.target.closest("#edForm .panel");
-      if (panel && e.target.type === "radio") { edDirty = true; edTouched.add(panel.dataset.race); }
     });
     $("#editor").addEventListener("cancel", (e) => { if (edDirty) { e.preventDefault(); closeEditor(); } });
     $("#editor").addEventListener("focusin", (e) => { if (e.target.matches("[data-vote],[data-invalid]")) setTimeout(() => e.target.select?.(), 0); });
