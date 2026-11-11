@@ -31,6 +31,10 @@
   ];
   const raceByKey = Object.fromEntries(RACES.map((r) => [r.key, r]));
   const groupOf = (race, s) => race.groups[race.groupOf(s)];
+  // 市民代表、縣議員是一個選區選好幾席：標題一律寫成「第1選舉區（應選 4 席）」
+  const multiSeat = (race) => race.key === "rep" || race.key === "council";
+  const seatTag = (race, g) => (multiSeat(race) ? `<span class="seats">（應選 ${g.seats} 席）</span>` : "");
+  const councilArea = String(C.council.area || "").replace(/^宜蘭縣/, "");
   // 「合計」範圍：直接填整個範圍加起來的票數，和各投開票所分開存放（id：ALL、D1…D4、V:里名）
   const SCOPES = [
     { id: "ALL", kind: "all", name: "宜蘭市全市合計", district: null, village: null, neighbors: "", address: "", note: "" },
@@ -320,12 +324,13 @@
       if (!groups.length) continue;
       html.push(`<section class="dist">
         <div class="dist-head">
-          <h2>第${d}選舉區</h2>
-          <span class="meta"><b>${ag.done}</b> / ${ag.n} 所完成${ag.counting ? `　開票中 ${ag.counting}` : ""}${race.key === "rep" ? `　應選 ${DATA.districts[d].seats} 席` : ""}</span>
+          <h2>第${d}選舉區${race.key === "rep" ? seatTag(race, race.groups[String(d)]) : ""}</h2>
+          <span class="meta"><b>${ag.done}</b> / ${ag.n} 所完成${ag.counting ? `　開票中 ${ag.counting}` : ""}</span>
           <div class="bar" aria-hidden="true"><i style="width:${ag.n ? (ag.done / ag.n) * 100 : 0}%"></i></div>
         </div>${groups.join("")}</section>`);
     }
-    $("#list").innerHTML = html.join("") || `<p class="empty">沒有符合的投開票所</p>`;
+    const head = race.key === "council" ? `<p class="sumline racenote"><b>宜蘭縣議員　${esc(councilArea)}${seatTag(race, race.groups.all)}</b><span>這裡登錄的是宜蘭市內各投開票所的票數</span></p>` : "";
+    $("#list").innerHTML = html.length ? head + html.join("") : `<p class="empty">沒有符合的投開票所</p>`;
   }
 
   /* ---------- 編輯視窗 ---------- */
@@ -342,7 +347,7 @@
     const rec = getRec(s.id, race.key);
     const st = rec?.status || "pending";
     return `<div class="panel" data-race="${race.key}" ${race.key === edRace ? "" : "hidden"}>
-      <p class="panel-title">${esc(race.full)}${race.scope !== "all" ? `　${esc(g.label)}` : ""} <small>應選 ${g.seats} 席${g.cands.length === 1 ? "，同額競選" : `，${g.cands.length} 位候選人`}</small></p>
+      <p class="panel-title">${race.key === "council" ? `宜蘭縣議員　${esc(councilArea)}` : `${esc(race.full)}${race.scope !== "all" ? `　${esc(g.label)}` : ""}`}${seatTag(race, g)} <small>${multiSeat(race) ? "" : `應選 ${g.seats} 席，`}${g.cands.length === 1 ? "同額競選" : `${g.cands.length} 位候選人`}</small></p>
       ${rec && st !== "pending" ? `<p class="last">上次填寫：${rec.by ? `<b>${esc(rec.by)}</b>　` : ""}${hhmm(rec.updatedAt)}</p>` : ""}
       <div class="status-seg" role="radiogroup" aria-label="${esc(race.label)}開票狀態">
         ${Object.entries(STATUS).map(([k, label]) => `<label data-s="${k}"><input type="radio" name="status-${race.key}" value="${k}" ${k === st ? "checked" : ""}><span>${label}</span></label>`).join("")}
@@ -582,7 +587,7 @@
     }).join("");
     const prog = `<p class="res-prog"><b>${a.done}</b> / ${a.n} 所完成${a.counting ? `<span>開票中 ${a.counting}</span>` : ""}</p>`;
     const bar = `<div class="bar" aria-hidden="true"><i style="width:${a.n ? (a.done / a.n) * 100 : 0}%"></i></div>`;
-    const foot = compact ? "" : `<p class="res-foot">有效票 <b>${fmt(a.valid)}</b>　無效票 <b>${fmt(a.invalid)}</b>${g.seats > 1 ? `<span>應選 ${g.seats} 席，紅色是目前排在前 ${g.seats} 名</span>` : ""}</p>`;
+    const foot = compact ? "" : `<p class="res-foot">有效票 <b>${fmt(a.valid)}</b>　無效票 <b>${fmt(a.invalid)}</b>${g.seats > 1 ? `<span>紅色是目前排在前 ${g.seats} 名（應選 ${g.seats} 席）</span>` : ""}</p>`;
     return `<section class="card result ${compact ? "compact" : ""}"><div class="res-head"><h2>${title}</h2>${prog}</div>${compact ? "" : bar}${rows || `<p class="note">沒有登記候選人</p>`}${foot}</section>`;
   }
   function voteCells(g, a) {
@@ -653,15 +658,15 @@
       const villTable = `<section class="card"><h2>各里</h2><div class="tbl-wrap"><table>
         <thead><tr><th>里</th><th>完成</th>${headCells(g)}</tr></thead><tbody>${villRows}</tbody></table></div></section>`;
       // 候選人得票放在最上面，其次才是進度與各項統計
-      main = `<div class="ov-grid"><div class="stack">${candBlock(g, all, `${esc(race.full)}　全市得票`)}${flagCard}${compare}</div><div class="stack">${distTable}${villTable}</div></div>`;
+      main = `<div class="ov-grid"><div class="stack">${candBlock(g, all, race.key === "council" ? `宜蘭縣議員　${esc(councilArea)}${seatTag(race, g)}` : `${esc(race.full)}　全市得票`)}${flagCard}${compare}</div><div class="stack">${distTable}${villTable}</div></div>`;
     } else {
-      const line = `<p class="sumline"><b>${esc(race.full)}</b><span><b>${all.done}</b> / ${all.n} 所完成</span><span>有效票 <b>${fmt(all.valid)}</b></span><span>無效票 <b>${fmt(all.invalid)}</b></span></p>`;
+      const line = `<p class="sumline"><b>${esc(race.full)}${race.key === "rep" ? `<span class="seats">（共應選 ${districtIds.reduce((n, d) => n + race.groups[String(d)].seats, 0)} 席）</span>` : ""}</b><span><b>${all.done}</b> / ${all.n} 所完成</span><span>有效票 <b>${fmt(all.valid)}</b></span><span>無效票 <b>${fmt(all.invalid)}</b></span></p>`;
       let blocks;
       if (race.scope === "district") {
         blocks = `<div class="blocks">${districtIds.map((d) => {
           const g = race.groups[String(d)];
           const a = agg(race, stationsOf(d));
-          return candBlock(g, a, `第${d}選舉區`);
+          return candBlock(g, a, `第${d}選舉區${seatTag(race, g)}`);
         }).join("")}</div>`;
       } else {
         blocks = districtIds.map((d) => {
@@ -689,7 +694,7 @@
         return `<tr class="${fl ? "flag" : ""}"><td>${s.id} ${esc(s.name)}<br><small class="muted">${esc(s.village)} 鄰${esc(s.neighbors)}</small>${fl ? `<span class="flagtag">⚠ ${fl.map(esc).join("；")}</span>` : ""}</td><td><span class="badge" data-s="${st}">${STATUS[st]}</span></td>
           <td class="left wrap">${detail}</td><td>${st === "pending" ? "" : fmt(k.invalid)}</td><td>${st === "pending" ? "" : fmt(k.valid)}</td><td>${st === "pending" ? "" : fmt(k.total)}</td><td>${who}</td></tr>`;
       }).join("");
-      return rows ? `<tr class="grp"><td colspan="7">第${d}選舉區</td></tr>${rows}` : "";
+      return rows ? `<tr class="grp"><td colspan="7">第${d}選舉區${race.key === "rep" ? seatTag(race, race.groups[String(d)]) : ""}</td></tr>${rows}` : "";
     }).join("");
     const stTable = `<details class="card"><summary>${esc(race.label)}・全部投開票所明細（${list.length} 所）</summary><div class="tbl-wrap"><table>
       <thead><tr><th>投開票所</th><th>狀態</th><th class="left">各候選人得票</th><th>無效票</th><th>有效票</th><th>投票數</th><th>填表人／時間</th></tr></thead><tbody>${stRows}</tbody></table></div></details>`;

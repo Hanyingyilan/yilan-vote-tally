@@ -83,6 +83,9 @@ main { padding: 0 var(--gutter) 24px; max-width: 1280px; margin: 0 auto; }
 .racebar button small { display: block; font-size: 15px; font-weight: 400; font-variant-numeric: tabular-nums; }
 .racebar button[aria-pressed="true"], .race-tabs button[aria-selected="true"] { color: var(--ink); font-weight: 800; border-bottom-color: var(--accent); }
 .flagn { color: var(--accent); font-weight: 700; margin-left: 3px; }
+/* 應選席次：跟著標題走，不拆行 */
+.seats { white-space: nowrap; color: var(--accent); margin-right: 0 !important; }
+.racenote { margin-top: 16px; }
 
 /* ---------- 篩選 ---------- */
 .filters { padding: 12px 0 4px; }
