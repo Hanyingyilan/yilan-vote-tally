@@ -8,6 +8,7 @@
  *  3. 部署 → 新增部署作業 → 網頁應用程式：執行身分「我」，存取權「任何人」。
  *
  * 讀取（GET）不需要密碼；寫入（POST）一定要密碼。
+ * 讀取結果會快取 15 秒（有人寫入或歸零時立刻清掉），很多人同時看統計頁也不會把後端擠爆。
  *
  * 試算表格式（「得票明細」分頁，長表）：
  *   一列 = 一個範圍 × 一種選舉 × 一位候選人（另有一列「無效票」），方便用樞紐分析表統計。
@@ -23,6 +24,8 @@ var COL = { id: 0, district: 1, village: 2, venue: 3, race: 4, group: 5, no: 6, 
 var STATUS_LABEL = { pending: '未開票', counting: '開票中', done: '已完成' };
 var STATUS_CODE = { '未開票': 'pending', '開票中': 'counting', '已完成': 'done' };
 var MAX_ROWS = 10000;
+var CACHE_SEC = 15;      // 讀取結果快取秒數
+var CACHE_CHUNK = 30000; // 快取每段的字數（CacheService 單筆上限 100KB，中文一個字最多 3 bytes）
 
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
@@ -32,7 +35,12 @@ function doGet(e) {
   try {
     var action = (e && e.parameter && e.parameter.action) || 'all';
     if (action !== 'all') return json_({ ok: false, error: 'unknown action' });
-    return json_(readAll_());
+    var text = cacheGet_();
+    if (!text) {
+      text = JSON.stringify(readAll_());
+      cachePut_(text);
+    }
+    return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
@@ -48,11 +56,14 @@ function doPost(e) {
     if (body.token !== token) return json_({ ok: false, error: '同步密碼不正確' });
 
     if (body.action === 'upsertMany') {
-      return json_({ ok: true, count: write_(body.records || [], false) });
+      var count = write_(body.records || [], false);
+      cacheClear_();
+      return json_({ ok: true, count: count });
     }
     if (body.action === 'init') {
       write_(body.records || [], true);
       buildSummary_(body.summary || []);
+      cacheClear_();
       return json_({ ok: true, rows: getSheet_().getLastRow() - 1 });
     }
     return json_({ ok: false, error: 'unknown action' });
@@ -61,6 +72,44 @@ function doPost(e) {
   } finally {
     try { lock.releaseLock(); } catch (x) { /* ignore */ }
   }
+}
+
+/* ---------- 讀取快取 ---------- */
+// 整份資料可能超過單筆快取上限，所以切成幾段存；每次存都換一個新的批號，避免讀到新舊混在一起的段落。
+
+function cacheGet_() {
+  try {
+    var c = CacheService.getScriptCache();
+    var head = c.get('all:head'); // 「批號|段數」
+    if (!head) return null;
+    var p = head.split('|'), stamp = p[0], n = Number(p[1]);
+    var keys = [];
+    for (var i = 0; i < n; i++) keys.push('all:' + stamp + ':' + i);
+    var parts = c.getAll(keys), out = '';
+    for (var j = 0; j < n; j++) {
+      var s = parts[keys[j]];
+      if (s == null) return null;
+      out += s;
+    }
+    return out;
+  } catch (err) {
+    return null;
+  }
+}
+
+function cachePut_(text) {
+  try {
+    var c = CacheService.getScriptCache();
+    var stamp = String(Date.now()) + Math.floor(Math.random() * 1000);
+    var n = Math.ceil(text.length / CACHE_CHUNK), obj = {};
+    for (var i = 0; i < n; i++) obj['all:' + stamp + ':' + i] = text.substr(i * CACHE_CHUNK, CACHE_CHUNK);
+    c.putAll(obj, CACHE_SEC + 5);
+    c.put('all:head', stamp + '|' + n, CACHE_SEC);
+  } catch (err) { /* 快取失敗就算了，下次直接讀試算表 */ }
+}
+
+function cacheClear_() {
+  try { CacheService.getScriptCache().remove('all:head'); } catch (err) { /* ignore */ }
 }
 
 /* ---------- 工作表 ---------- */
@@ -214,7 +263,7 @@ function resetRows_(match, dryRun) {
       row[COL.ms] = now;
     });
     var n = Object.keys(hit).length;
-    if (n && !dryRun) rng.setValues(vals);
+    if (n && !dryRun) { rng.setValues(vals); cacheClear_(); }
     return n;
   } finally {
     lock.releaseLock();
