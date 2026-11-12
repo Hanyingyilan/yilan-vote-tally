@@ -31,6 +31,8 @@ var COL = { id: 0, district: 1, village: 2, venue: 3, race: 4, group: 5, no: 6, 
 var STATUS_LABEL = { pending: '未開票', counting: '開票中', done: '已完成' };
 var STATUS_CODE = { '未開票': 'pending', '開票中': 'counting', '已完成': 'done' };
 var MAX_ROWS = 10000;
+// 每次改這份程式就把版次往上加。試算表「開票工具」選單最下面會顯示，用來確認貼上去的是不是最新的。
+var VERSION = '宜蘭市 2026-11-12 第 1 版';
 var ROSTER = '回報員';
 var ROSTER_HEADER = ['名字', '密碼', '停用（打勾＝不能再送）', '專屬連結（傳給本人，點一下就能回報）'];
 var ROSTER_SEC = 30;     // 名單快取秒數（在名單分頁改東西會立刻清掉快取）
@@ -58,7 +60,7 @@ function doGet(e) {
 
 // 每次讀取都附上「這裡現在幾點」（now），手機用它校正自己不準的時鐘。加在快取之後，所以一定是當下的時間。
 function withNow_(text) {
-  return '{"now":' + Date.now() + ',' + text.slice(1);
+  return '{"now":' + Date.now() + ',"ver":' + JSON.stringify(VERSION) + ',' + text.slice(1); // ver：從外面也看得出線上跑的是哪一版
 }
 
 // 「時間較新的蓋掉舊的」是照每一筆的 updatedAt，而那是手機自己的時鐘。
@@ -400,7 +402,15 @@ function onOpen() {
     .addItem('歸零某一個投開票所', 'resetOne')
     .addSeparator()
     .addItem('回報員名單：產生每個人的密碼和連結', 'setupRoster')
+    .addSeparator()
+    .addItem('程式版本：' + VERSION, 'showVersion')
     .addToUi();
+}
+
+function showVersion() {
+  SpreadsheetApp.getUi().alert('這份試算表的程式版本', VERSION
+    + '\n\n有新版時：把新的 Code.gs 整份貼上、存檔，用「管理部署作業 → 新版本」部署，再重新整理這份試算表，這裡就會變。\n'
+    + '（選單上的版本只在打開試算表那一刻讀一次，貼完要重新整理才會更新。）', SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 /* ---------- 回報員名單（每人一組密碼） ---------- */
