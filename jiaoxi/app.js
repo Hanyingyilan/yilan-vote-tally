@@ -441,6 +441,8 @@
   // 表單上方那一行：目前狀態＋上次是誰、幾點填的
   function panelInfo(rec) {
     const st = rec?.status || "pending";
+    // 這支手機剛填、還沒確定送到雲端的：先不寫「已完成」，免得和上面的「傳送中」「還沒送出」對不起來
+    if (rec && syncUrl() && state.dirty[rk(rec.id, rec.race)]) return `<span class="st-status" data-s="counting">還沒送到雲端</span>　${hhmm(rec.updatedAt)} 填的`;
     if (!rec || st === "pending") return "還沒有人填過這一項";
     const who = nameOf(rec);
     return `目前：<span class="st-status" data-s="${st}">${STATUS[st]}</span>　上次填寫：${who ? `<b>${esc(who)}</b>　` : ""}${hhmm(rec.updatedAt)}`;
@@ -625,7 +627,7 @@
     renderAll();
     updateSavedBanner();
     $("#savedBanner")?.scrollIntoView({ block: "nearest" });
-    if (todo.length) syncSoon();
+    if (todo.length) syncSoon(50); // 按了送出就馬上傳，不多等
     return true;
   }
   function updateSavedBanner() {
@@ -635,6 +637,12 @@
     const show = (st, html, extra = "") => { b.hidden = false; b.dataset.state = st; b.innerHTML = `<span>${html}</span>${extra}`; };
     if (!ui.savedAt) { b.hidden = true; return; }
     const { keys, none } = ui.savedAt;
+    // 剛送出的那幾項，表單上「目前：…」那一行跟著更新（還沒送到雲端 → 已完成）
+    if (ui.editId) for (const k of keys) {
+      const panel = $(`#edForm .panel[data-race="${k}"]`);
+      const info = panel && $("[data-info]", panel);
+      if (info) info.innerHTML = panelInfo(getRec(ui.editId, k));
+    }
     if (none) { show("info", "沒有新的修改。"); return; }
     const names = keys.map((k) => raceByKey[k].label).join("、");
     const pend = keys.filter((k) => state.dirty[rk(ui.editId, k)]);
@@ -987,11 +995,11 @@
     } finally {
       ui.syncing = false; saveState(); renderChip();
       // 剛才在更新畫面時使用者按了送出（那一筆沒趕上這一輪）：馬上再跑一次，不要等下一輪定時更新
-      if (!ui.error && Object.keys(state.dirty).some((k) => state.records[k])) syncSoon();
+      if (!ui.error && Object.keys(state.dirty).some((k) => state.records[k])) syncSoon(50);
     }
   }
   let syncTimer;
-  function syncSoon() { clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, 600); }
+  function syncSoon(ms = 600) { clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, ms); }
   function renderChip() {
     const chip = $("#syncChip");
     const pending = Object.keys(state.dirty).length;
