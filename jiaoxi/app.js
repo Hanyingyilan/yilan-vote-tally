@@ -176,23 +176,50 @@
   function saveState() {
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
   }
+  // LINE、Facebook、Instagram 這類 App 裡面內建的瀏覽器（測試時可以在網址加 ?inapp=1 假裝是）。
+  // 在這裡點了專屬連結之後，很多人會再按「用預設瀏覽器開啟」，那時 App 是把「網址列上的網址」交給 Safari／Chrome。
+  // Safari／Chrome 是另一個瀏覽器，沒有這邊記住的密碼；所以在 App 內建瀏覽器裡，密碼要留在網址上（linkKey），
+  // 換過去才會自動登入，不用再輸入一次。一般瀏覽器則照舊馬上把密碼從網址拿掉。
+  const IN_APP = /\bLine\/|FBAN|FBAV|FB_IAB|Instagram|MicroMessenger/i.test(navigator.userAgent || "") || /[?&]inapp=1/.test(location.search);
+  let linkKey = "";
+  const keyHash = (tab) => (linkKey ? "#" + (tab ? tab + "&" : "") + "k=" + encodeURIComponent(linkKey) : tab ? "#" + tab : "");
+  const tabOfHash = () => location.hash.slice(1).split("&")[0];
   // 專屬連結：網址結尾帶 #k=密碼（負責人私訊給每位回報員）。點開就記住密碼，不用自己打。
   function loginFromLink() {
     const m = location.hash.match(LINK_RE) || location.search.match(LINK_RE);
-    if (!m) return false;
+    const base = location.pathname + (IS_DEFAULT || townNames.length < 2 ? "" : "?town=" + encodeURIComponent(townName));
+    if (!m) {
+      // 之前在這個 App 內建瀏覽器用專屬連結登入過：把密碼放回網址上，之後按「用預設瀏覽器開啟」才帶得過去
+      if (IN_APP && state.settings.linked && state.settings.token) {
+        linkKey = state.settings.token;
+        const t = tabOfHash();
+        try { history.replaceState(null, "", base + keyHash(t === "entry" || t === "overview" ? t : "")); } catch (_) { /* ignore */ }
+      }
+      return false;
+    }
     let k = "";
     try { k = decodeURIComponent(m[1]).trim(); } catch (_) { /* 連結被截斷 */ }
-    // 馬上把密碼從網址列拿掉，截圖或轉貼網址時才不會外流。同一個網站有好幾個鄉鎮市時要留著 ?town=，重新整理或加到主畫面才會回到同一個鄉鎮市
-    try { history.replaceState(null, "", location.pathname + (IS_DEFAULT || townNames.length < 2 ? "" : "?town=" + encodeURIComponent(townName))); } catch (_) { /* ignore */ }
+    linkKey = IN_APP ? k : "";
+    // 一般瀏覽器：馬上把密碼從網址列拿掉，截圖或轉貼網址時才不會外流。同一個網站有好幾個鄉鎮市時要留著 ?town=，重新整理或加到主畫面才會回到同一個鄉鎮市
+    try { history.replaceState(null, "", base + keyHash("")); } catch (_) { /* ignore */ }
     if (!k) return false;
     state.settings.token = k;
+    state.settings.linked = true; // 這組密碼是從專屬連結來的（不是自己打的）
     saveState();
     return true;
+  }
+  // 密碼被改掉或失效時，網址上也不要再留著舊的
+  function dropLinkKey() {
+    state.settings.linked = false;
+    if (!linkKey) return;
+    linkKey = "";
+    try { history.replaceState(null, "", location.pathname + location.search + keyHash(ui.tab)); } catch (_) { /* ignore */ }
   }
   function linkResult() {
     if (ui.tokenBad) {
       state.settings.token = "";
       ui.tokenBad = false;
+      dropLinkKey();
       saveState(); renderChip();
       ask({ title: "這個連結不能用了", html: `<p>連結可能已經停用，或是複製時少了幾個字。</p><p>請向負責人要新的連結。</p>`, ok: "知道了", cancel: "關閉" });
     } else if (!ui.error) {
@@ -292,7 +319,7 @@
     for (const b of $$(".tabs [role=tab]")) b.setAttribute("aria-selected", String(b.dataset.tab === tab));
     $("#tab-entry").hidden = tab !== "entry";
     $("#tab-overview").hidden = tab !== "overview";
-    if (push) history.replaceState(null, "", "#" + tab);
+    if (push) history.replaceState(null, "", keyHash(tab));
     renderAll();
     scrollTo(0, 0);
   }
@@ -642,6 +669,7 @@
   async function submitPassword() {
     const v = $("#pwInput").value.trim();
     if (!v) return openPasswordPrompt("請先輸入密碼");
+    if (v !== state.settings.token) dropLinkKey(); // 自己打的密碼不放到網址上
     state.settings.token = v;
     saveState();
     $("#pw").close();
@@ -1006,7 +1034,9 @@
   async function settingsAction(act) {
     if (act === "stClose") return $("#settings").close();
     if (act === "stSave") {
-      state.settings = { ...state.settings, ...readSettings() };
+      const next = readSettings();
+      if (next.token !== state.settings.token) dropLinkKey();
+      state.settings = { ...state.settings, ...next };
       saveState(); $("#settings").close(); renderChip();
       const n = Object.keys(state.dirty).length;
       toast(n && state.settings.token ? `設定已儲存，正在送出 ${n} 筆票數…` : "設定已儲存");
@@ -1019,6 +1049,7 @@
       return;
     }
     const cur = readSettings();
+    if (cur.token !== state.settings.token) dropLinkKey();
     state.settings = { ...state.settings, ...cur };
     saveState();
     if (!syncUrl()) return stMsg("請先填 Apps Script 網址", "err");
@@ -1119,7 +1150,7 @@
     });
     $("#editor").addEventListener("cancel", (e) => { if (edDirty) { e.preventDefault(); closeEditor(); } });
     $("#editor").addEventListener("focusin", (e) => { if (e.target.matches("[data-vote],[data-invalid]")) setTimeout(() => e.target.select?.(), 0); });
-    addEventListener("hashchange", () => { const h = location.hash.slice(1); if ((h === "entry" || h === "overview") && h !== ui.tab) setTab(h, false); });
+    addEventListener("hashchange", () => { const h = tabOfHash(); if ((h === "entry" || h === "overview") && h !== ui.tab) setTab(h, false); });
     addEventListener("online", syncSoon);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) syncNow(); });
     setInterval(() => { if (!document.hidden) syncNow(); }, SYNC_INTERVAL);
@@ -1157,7 +1188,7 @@
   initHeader();
   bind();
   window.__tallyReady = true; // index.html 用它判斷程式有沒有成功啟動（太舊的瀏覽器會顯示提示）
-  const h = location.hash.slice(1);
+  const h = tabOfHash();
   setTab(h === "entry" || h === "overview" ? h : matchMedia("(min-width: 900px)").matches ? "overview" : "entry", false);
   if (syncUrl()) syncNow().then(() => { if (viaLink) linkResult(); });
 })();
