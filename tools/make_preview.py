@@ -5,7 +5,7 @@
 
 輸出的內容就是這個分支的網站，只差三件事：
   1. index.html 只載入指定鄉鎮市的資料檔（所以畫面上不會出現其他鄉鎮市）；
-  2. 最上面多一條「預覽版」提示；
+  2. 最上面多一條「預覽版」提示；只有一個鄉鎮市時，連結預覽（LINE 等）的標題也換成那個鄉鎮市；
   3. config.js 的 syncUrl 清空（不會連到正式的試算表），只留 syncUrls 裡這些鄉鎮市自己的網址。
 """
 import re
@@ -36,6 +36,19 @@ assert n >= len(codes), "index.html 裡找不到鄉鎮市資料檔"
 assert html.count("<body>\n") == 1
 html = html.replace("<body>\n", "<body>\n  <!-- 只有預覽版才有這一條（正式網站沒有） -->\n"
                     '  <div style="background:#15171c;color:#fff;text-align:center;font-size:15px;line-height:1.4;padding:4px 8px">預覽版（測試用，不是正式網站）</div>\n')
+# 只有一個鄉鎮市時，把寫死在網頁裡的標題換成那個鄉鎮市。
+# LINE、Facebook 顯示連結預覽時不會執行程式，只看這裡寫的字，不換的話會顯示「宜蘭市開票統計」。
+if len(names) == 1:
+    title = f"{names[0]}開票統計"
+    desc = f"{names[0]}各投開票所開票回報與即時統計。"
+    html, n1 = re.subn(r"<title>[^<]*</title>", f"<title>{title}</title>", html, count=1)
+    html, n2 = re.subn(r'<meta name="description" content="[^"]*">',
+                       f'<meta name="description" content="{desc}">\n'
+                       f'  <meta property="og:title" content="{title}">\n'
+                       f'  <meta property="og:description" content="{desc}">\n'
+                       f'  <meta property="og:site_name" content="{title}">\n'
+                       '  <meta property="og:type" content="website">', html, count=1)
+    assert n1 == 1 and n2 == 1, "index.html 裡找不到標題或說明"
 html = html.replace("</title>", '</title>\n  <meta name="robots" content="noindex">', 1)
 (out / "index.html").write_text(html, encoding="utf8")
 
