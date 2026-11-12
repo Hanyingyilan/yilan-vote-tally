@@ -54,6 +54,24 @@ if preview:
     html = html.replace("</title>", '</title>\n  <meta name="robots" content="noindex">', 1)
 (out / "index.html").write_text(html, encoding="utf8")
 
+# 回報員使用說明頁（help.html）：範本是宜蘭市的，把鄉鎮市名稱、選舉項目的叫法、舉例的投開票所換成這個鄉鎮市的
+if (ROOT / "help.html").exists():
+    import json
+    raw = src.read_text(encoding="utf8")
+    data = json.loads(raw[raw.index("= {") + 2:raw.rindex("}") + 1])
+    L, st = data["labels"], data["stations"][0]
+    hp = (ROOT / "help.html").read_text(encoding="utf8")
+    for old, new in (("｜宜蘭市開票統計", f"｜{name}開票統計"),
+                     ("宜蘭市開票，用手機回報票數", f"{name}開票，用手機回報票數"),
+                     ("「搜尋編號或里」", f"「搜尋編號或{L['unit']}」"),
+                     ("切換市長、市民代表、里長、", f"切換{L['head']}、{L['rep']}、{L['chief']}、"),
+                     ('<span class="no">0001</span><span class="nm">光復國小<small>鄰 1-5,8,14-15</small></span>',
+                      f'<span class="no">{st["id"]}</span><span class="nm">{st["name"]}<small>鄰 {st["neighbors"]}</small></span>')):
+        assert hp.count(old) == 1, f"help.html 的內容變了，找不到：{old}"
+        hp = hp.replace(old, new)
+    assert "宜蘭市" not in hp, "help.html 裡還有沒換掉的「宜蘭市」"
+    (out / "help.html").write_text(hp, encoding="utf8")
+
 cfg = (ROOT / "config.js").read_text(encoding="utf8")
 cfg, n = re.subn(r'(\n\s*syncUrl:\s*)"[^"]*"', r'\1""', cfg)
 assert n == 1, "config.js 裡找不到 syncUrl"

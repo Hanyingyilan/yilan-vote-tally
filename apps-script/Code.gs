@@ -31,7 +31,7 @@
  */
 
 // 每次改這份程式就把日期往後改。試算表「開票工具」選單最下面會顯示，用來確認貼上去的是不是最新的。
-var VERSION = '2026-11-12 丁（宜蘭市以外的鄉鎮市用）';
+var VERSION = '2026-11-12 戊（宜蘭市以外的鄉鎮市用）';
 var DETAIL = '得票明細';
 var SUMMARY = '彙總';
 var DEFAULT_TOWN = '宜蘭市';
@@ -510,7 +510,9 @@ function setupRoster() {
   if (last < 2) { ui.alert(empty); return; }
   var rng = sh.getRange(2, 1, last - 1, 4), vals = rng.getValues();
   var used = {}, made = 0, people = 0, dup = [], short = [];
-  var link = siteUrl_(town) + '#k=';
+  // openExternalBrowser=1：在 LINE 裡點連結時，直接用手機自己的瀏覽器（Safari／Chrome）打開，不在 LINE 裡面開。
+  // 這樣每次都在同一個瀏覽器，不會「LINE 裡登入了、換瀏覽器又要輸入密碼」。密碼仍放在 # 後面，不會送到任何伺服器。
+  var link = siteUrl_(town) + '?openExternalBrowser=1#k=';
   vals.forEach(function (row) { var p = String(row[1]).trim(); if (p) used[p] = (used[p] || 0) + 1; });
   vals.forEach(function (row, i) {
     var name = String(row[0]).trim(), pass = String(row[1]).trim();
