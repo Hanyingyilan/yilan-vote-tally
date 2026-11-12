@@ -449,7 +449,9 @@ function setupRoster() {
       used[pass] = 1; row[1] = pass; made++;
     } else if (pass.length < PASS_MIN) short.push(name);
     else if (used[pass] > 1) dup.push(name);
-    row[3] = pass.length >= PASS_MIN ? SITE_URL + '#k=' + encodeURIComponent(pass) : '';
+    // openExternalBrowser=1：在 LINE 裡點連結時，直接用手機自己的瀏覽器（Safari／Chrome）打開，不在 LINE 裡面開。
+    // 這樣每次都在同一個瀏覽器，不會「LINE 裡登入了、換瀏覽器又要輸入密碼」。密碼仍放在 # 後面，不會送到任何伺服器。
+    row[3] = pass.length >= PASS_MIN ? SITE_URL + '?openExternalBrowser=1#k=' + encodeURIComponent(pass) : '';
   });
   if (!people) { ui.alert('名單還是空的。\n請先在「名字」欄填上回報員的名字，再按一次。'); return; }
   rng.setValues(vals);
