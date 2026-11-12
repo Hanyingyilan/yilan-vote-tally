@@ -381,12 +381,14 @@ function onOpen() {
 
 /* ---------- 回報員名單（每人一組密碼） ---------- */
 
-// 不容易看錯的字（沒有 0、1、i、l、o）
+// 6 碼純數字。第一碼不是 0（免得試算表把開頭的 0 吃掉），也不出 111111、123456 這種一猜就中的。
 function newPass_() {
-  var chars = 'abcdefghjkmnpqrstuvwxyz23456789';
-  var hex = Utilities.getUuid().replace(/-/g, ''), out = '';
-  for (var i = 0; i < 8; i++) out += chars.charAt(parseInt(hex.substr(i * 3, 3), 16) % chars.length);
-  return out;
+  for (;;) {
+    var hex = Utilities.getUuid().replace(/-/g, '');
+    var p = String(100000 + parseInt(hex.substr(0, 12), 16) % 900000);
+    if (/^(\d)\1+$/.test(p) || '0123456789'.indexOf(p) >= 0 || '9876543210'.indexOf(p) >= 0) continue;
+    return p;
+  }
 }
 
 function setupRoster() {
