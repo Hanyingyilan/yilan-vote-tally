@@ -972,9 +972,12 @@
         const res = await post({ action: "upsertMany", token: state.settings.token, sentAt: nowMs(), records: keys.map((k) => wire(state.records[k])) });
         if (!res.ok) throw new Error(res.error || "上傳失敗");
         for (const [k, at] of sent) if (state.records[k].updatedAt === at) delete state.dirty[k];
+        // 票已經送到了：馬上顯示「已送出」，不用等下面那次讀取（讀取只是順便抓別人的最新資料）
+        saveState(); renderChip();
       }
       const res = await getAll();
       if (!res.ok) throw new Error(res.error || "讀取失敗");
+      ui.backendOk = true; // 讀得到、而且回應寫明是這個鄉鎮市：之後送出不用再多問一次
       if (res.who) state.settings.by = String(res.who); // 用自己的專屬密碼：名字以負責人名單上的為準
       const n = mergeRemote(res.records || []);
       state.lastSync = Date.now();
@@ -983,6 +986,8 @@
       ui.error = e.message === "NO_TOKEN" ? "NO_TOKEN" : e.message || "同步失敗";
     } finally {
       ui.syncing = false; saveState(); renderChip();
+      // 剛才在更新畫面時使用者按了送出（那一筆沒趕上這一輪）：馬上再跑一次，不要等下一輪定時更新
+      if (!ui.error && Object.keys(state.dirty).some((k) => state.records[k])) syncSoon();
     }
   }
   let syncTimer;
