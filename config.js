@@ -12,5 +12,8 @@ window.TALLY_CONFIG = {
 
   // 某個鄉鎮市要用「另一份」Google 試算表時，把那份的 Apps Script 網址寫在這裡；沒寫的鄉鎮市用上面的 syncUrl。
   // 例如：syncUrls: { "礁溪鄉": "https://script.google.com/macros/s/…/exec" },
-  syncUrls: {},
+  syncUrls: {
+    // 礁溪鄉自己的一份試算表（貼 county 分支的 Code.gs）
+    "礁溪鄉": "https://script.google.com/macros/s/AKfycbxl_OYn4ElIVJw8I5uZTI2C3qbkyX4hKrynY7v6G6PJy68dQtMkikJsCSFJc1d15SVA/exec",
+  },
 };
