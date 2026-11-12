@@ -21,6 +21,7 @@
  *
  * 多個鄉鎮市：每個鄉鎮市各用自己的兩個分頁。宜蘭市＝「得票明細」「彙總」（沿用原本的）；
  *   其他鄉鎮市＝「礁溪鄉 得票明細」「礁溪鄉 彙總」這樣的名稱，第一次按網站的「初始化雲端表格」時自動建立。
+ *   宜蘭市以外，每個鄉鎮市有自己的網址（礁溪鄉＝…/yilan-vote-tally/jiaoxi/），通常也各用自己的一份試算表。
  *   管理員密碼：指令碼屬性 TOKEN 所有鄉鎮市共用；想讓某個鄉鎮市用自己的管理員密碼，再加一個屬性，例如 TOKEN_礁溪鄉
  *   （加了之後，TOKEN 就不能寫礁溪鄉，TOKEN_礁溪鄉 也不能寫別的鄉鎮市）。
  *
@@ -30,7 +31,7 @@
  */
 
 // 每次改這份程式就把日期往後改。試算表「開票工具」選單最下面會顯示，用來確認貼上去的是不是最新的。
-var VERSION = '2026-11-12 乙（宜蘭市以外的鄉鎮市用）';
+var VERSION = '2026-11-12 丙（宜蘭市以外的鄉鎮市用）';
 var DETAIL = '得票明細';
 var SUMMARY = '彙總';
 var DEFAULT_TOWN = '宜蘭市';
@@ -48,7 +49,11 @@ var ROSTER_SEC = 30;     // 名單快取秒數（在名單分頁改東西會立�
 var PASS_MIN = 6;        // 回報員密碼至少幾個字（太短容易被猜到，不會生效）
 var LOG = '修改記錄';
 var LOG_HEADER = ['時間', '誰送的', '編號', '投開票所', '選舉', '改之前', '改之後', '原本是誰填的', '原本的時間'];
-var SITE_URL = 'https://hanyingyilan.github.io/yilan-vote-tally/'; // 專屬連結用的網站網址（指令碼屬性 SITE_URL 可以改，例如測試用的預覽網址）
+var SITE_URL = 'https://hanyingyilan.github.io/yilan-vote-tally/'; // 宜蘭市的網站網址
+// 宜蘭市以外，每個鄉鎮市有自己的網址：上面的網址後面接這個資料夾名稱，例如礁溪鄉＝…/yilan-vote-tally/jiaoxi/
+// （和 tools/make_site.py 裡的 SLUG 要一致）
+var TOWN_PATH = { '羅東鎮': 'luodong', '蘇澳鎮': 'suao', '頭城鎮': 'toucheng', '礁溪鄉': 'jiaoxi', '壯圍鄉': 'zhuangwei',
+  '員山鄉': 'yuanshan', '冬山鄉': 'dongshan', '五結鄉': 'wujie', '三星鄉': 'sanxing', '大同鄉': 'datong', '南澳鄉': 'nanao' };
 var CACHE_SEC = 15;      // 讀取結果快取秒數
 var CACHE_CHUNK = 30000; // 快取每段的字數（CacheService 單筆上限 100KB，中文一個字最多 3 bytes）
 
@@ -481,7 +486,7 @@ function setupRoster() {
   if (last < 2) { ui.alert(empty); return; }
   var rng = sh.getRange(2, 1, last - 1, 4), vals = rng.getValues();
   var used = {}, made = 0, people = 0, dup = [], short = [];
-  var link = siteUrl_() + (town === DEFAULT_TOWN ? '' : '?town=' + encodeURIComponent(town)) + '#k=';
+  var link = siteUrl_(town) + '#k=';
   vals.forEach(function (row) { var p = String(row[1]).trim(); if (p) used[p] = (used[p] || 0) + 1; });
   vals.forEach(function (row, i) {
     var name = String(row[0]).trim(), pass = String(row[1]).trim();
@@ -506,12 +511,13 @@ function setupRoster() {
   ui.alert('完成', msg, ui.ButtonSet.OK);
 }
 
-// 專屬連結開頭的網站網址：預設是正式網站；指令碼屬性 SITE_URL 有填就用它（結尾自動補 /）
-function siteUrl_() {
+// 專屬連結開頭的網站網址：宜蘭市＝正式網站；其他鄉鎮市＝正式網站底下自己的資料夾（礁溪鄉＝…/jiaoxi/）。
+// 指令碼屬性 SITE_URL 有填就整個改用它（結尾自動補 /），平常不用填。
+function siteUrl_(town) {
   var u = '';
   try { u = String(PropertiesService.getScriptProperties().getProperty('SITE_URL') || '').trim(); } catch (err) { /* ignore */ }
-  if (!u) return SITE_URL;
-  return /\/$/.test(u) ? u : u + '/';
+  if (u) return /\/$/.test(u) ? u : u + '/';
+  return SITE_URL + (TOWN_PATH[town] ? TOWN_PATH[town] + '/' : '');
 }
 
 // match(row)：這一列要不要歸零。dryRun=true 只計算有幾筆（投開票所×選舉），不改任何資料。

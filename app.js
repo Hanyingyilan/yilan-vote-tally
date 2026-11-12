@@ -178,8 +178,8 @@
     if (!m) return false;
     let k = "";
     try { k = decodeURIComponent(m[1]).trim(); } catch (_) { /* 連結被截斷 */ }
-    // 馬上把密碼從網址列拿掉，截圖或轉貼網址時才不會外流。宜蘭市以外要留著 ?town=，重新整理或加到主畫面才會回到同一個鄉鎮市
-    try { history.replaceState(null, "", location.pathname + (IS_DEFAULT ? "" : "?town=" + encodeURIComponent(townName))); } catch (_) { /* ignore */ }
+    // 馬上把密碼從網址列拿掉，截圖或轉貼網址時才不會外流。同一個網站有好幾個鄉鎮市時要留著 ?town=，重新整理或加到主畫面才會回到同一個鄉鎮市
+    try { history.replaceState(null, "", location.pathname + (IS_DEFAULT || townNames.length < 2 ? "" : "?town=" + encodeURIComponent(townName))); } catch (_) { /* ignore */ }
     if (!k) return false;
     state.settings.token = k;
     saveState();
