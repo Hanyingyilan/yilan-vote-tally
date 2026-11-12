@@ -1164,7 +1164,7 @@
     $("#editor").addEventListener("cancel", (e) => { if (edDirty) { e.preventDefault(); closeEditor(); } });
     $("#editor").addEventListener("focusin", (e) => { if (e.target.matches("[data-vote],[data-invalid]")) setTimeout(() => e.target.select?.(), 0); });
     addEventListener("hashchange", () => { const h = tabOfHash(); if ((h === "entry" || h === "overview") && h !== ui.tab) setTab(h, false); });
-    addEventListener("online", syncSoon);
+    addEventListener("online", () => syncSoon());
     document.addEventListener("visibilitychange", () => { if (!document.hidden) syncNow(); });
     setInterval(() => { if (!document.hidden) syncNow(); }, SYNC_INTERVAL);
     setTimeout(checkUpdate, 4000);
