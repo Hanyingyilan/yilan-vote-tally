@@ -29,6 +29,8 @@
  *   「類型」欄：投開票所＝各所回報；合計＝直接填的全市／選舉區／里合計（和各所分開存，彙總時不重複加）。
  */
 
+// 每次改這份程式就把日期往後改。試算表「開票工具」選單最下面會顯示，用來確認貼上去的是不是最新的。
+var VERSION = '2026-11-12 乙（宜蘭市以外的鄉鎮市用）';
 var DETAIL = '得票明細';
 var SUMMARY = '彙總';
 var DEFAULT_TOWN = '宜蘭市';
@@ -414,7 +416,13 @@ function onOpen() {
     .addItem('歸零某一個投開票所', 'resetOne')
     .addSeparator()
     .addItem('回報員名單：產生每個人的密碼和連結', 'setupRoster')
+    .addSeparator()
+    .addItem('程式版本：' + VERSION, 'showVersion')
     .addToUi();
+}
+
+function showVersion() {
+  SpreadsheetApp.getUi().alert('這份試算表的程式版本', VERSION + '\n\n負責人說有新版時，把新的 Code.gs 整份貼上、存檔，再重新整理這份試算表，這裡的日期就會變。', SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 // 歸零、回報員名單的對象＝目前點到的分頁所屬的鄉鎮市（分頁名稱開頭是「礁溪鄉 」就是礁溪鄉；其他都算宜蘭市）
