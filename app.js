@@ -169,6 +169,10 @@
       if (raw && raw.records) state = { ...state, ...raw, settings: { ...state.settings, ...(raw.settings || {}) } };
     } catch (_) { /* 無痕模式或被封鎖時，只在記憶體內運作 */ }
   }
+  // 手機時鐘不準時，用雲端的時間校正（state.settings.skew＝雲端時間減手機時間，同步時更新）。
+  // 每一筆票數的時間都用這個，「時間較新的蓋掉舊的」才不會被某支時間不準的手機卡住。
+  const CLOCK_SLACK = 30000; // 差不到 30 秒就當作是準的
+  function nowMs() { return Date.now() + (Number(state.settings.skew) || 0); }
   function saveState() {
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
   }
@@ -572,8 +576,9 @@
         $("[data-by]").value = by;
       }
     }
-    const now = Date.now();
     for (const [key, d] of todo) {
+      // 我是看著原本那一筆按下送出的，所以時間一定要比它新（即使兩支手機的時鐘差了幾秒）
+      const now = Math.max(nowMs(), (state.records[rk(id, key)]?.updatedAt || 0) + 1);
       state.records[rk(id, key)] = { id, race: key, votes: d.votes, invalid: d.invalid, electors: state.records[rk(id, key)]?.electors ?? null, status: d.status, by, updatedAt: now };
       state.dirty[rk(id, key)] = true;
       state.mine[rk(id, key)] = now;
@@ -586,7 +591,7 @@
     saveState();
     edDirty = false; edTouched = new Set();
     // 儲存後留在原頁，清楚顯示「已儲存」，不自動跳到別的投開票所
-    ui.savedAt = { keys: todo.map(([k]) => k), at: now, none: todo.length === 0 };
+    ui.savedAt = { keys: todo.map(([k]) => k), at: nowMs(), none: todo.length === 0 };
     for (const b of $$("[data-ed-race]")) $(".dot", b).dataset.s = getRec(id, b.dataset.edRace)?.status || "pending";
     const close = $("#edClose");
     if (close && todo.length) { close.textContent = "回到清單"; close.classList.add("primary"); }
@@ -865,12 +870,15 @@
   }
   function mergeRemote(list, markDirty = false) {
     let n = 0;
+    const ahead = nowMs() + 60000;
     for (const raw of list) {
       const r = normalize(raw);
       if (!r || !r.updatedAt) continue; // 雲端空白列
       const key = rk(r.id, r.race);
       const l = state.records[key];
-      if (!l || r.updatedAt > (l.updatedAt || 0)) {
+      // 這台留著一筆「時間在未來」又已經送出的：是時鐘不準時填的，雲端已經校正過，以雲端為準
+      const stale = !markDirty && l && !state.dirty[key] && l.updatedAt > ahead && r.updatedAt !== l.updatedAt;
+      if (!l || r.updatedAt > (l.updatedAt || 0) || stale) {
         state.records[key] = r;
         if (markDirty) state.dirty[key] = true; else delete state.dirty[key];
         n++;
@@ -893,19 +901,31 @@
     const out = await res.json();
     return townOk(out) ? out : { ok: false, error: OLD_BACKEND };
   }
+  // 讀取時順便量「雲端時間 − 手機時間」。用送出和收到的中間點，網路慢也不會差太多。
+  async function timed(run) {
+    const t0 = Date.now();
+    const res = await run();
+    if (res && res.ok && Number(res.now)) {
+      const d = Number(res.now) - (t0 + Date.now()) / 2;
+      state.settings.skew = Math.abs(d) > CLOCK_SLACK ? Math.round(d) : 0;
+    }
+    return res;
+  }
   async function getAll() {
     // 有密碼：用帶密碼的讀取，才拿得到填表人名字。密碼不對或後端還是舊版，就退回公開讀取。
     ui.tokenBad = false;
     if (state.settings.token) {
       try {
-        const full = await post({ action: "read", token: state.settings.token });
+        const full = await timed(() => post({ action: "read", token: state.settings.token }));
         if (full && full.ok) return full;
         if (full && /密碼/.test(full.error || "")) ui.tokenBad = true; // 密碼不對，或這個人被停用了
       } catch (_) { /* 退回公開讀取 */ }
     }
-    const res = await fetch(syncUrl() + (syncUrl().includes("?") ? "&" : "?") + "action=all&t=" + Date.now() + (IS_DEFAULT ? "" : "&town=" + encodeURIComponent(townName)), { redirect: "follow" });
-    const out = await res.json();
-    return townOk(out) ? out : { ok: false, error: OLD_BACKEND };
+    return timed(async () => {
+      const res = await fetch(syncUrl() + (syncUrl().includes("?") ? "&" : "?") + "action=all&t=" + Date.now() + (IS_DEFAULT ? "" : "&town=" + encodeURIComponent(townName)), { redirect: "follow" });
+      const out = await res.json();
+      return townOk(out) ? out : { ok: false, error: OLD_BACKEND };
+    });
   }
   async function syncNow() {
     if (!syncUrl() || ui.syncing) return;
@@ -921,7 +941,7 @@
           ui.backendOk = true;
         }
         const sent = keys.map((k) => [k, state.records[k].updatedAt]);
-        const res = await post({ action: "upsertMany", token: state.settings.token, records: keys.map((k) => wire(state.records[k])) });
+        const res = await post({ action: "upsertMany", token: state.settings.token, sentAt: nowMs(), records: keys.map((k) => wire(state.records[k])) });
         if (!res.ok) throw new Error(res.error || "上傳失敗");
         for (const [k, at] of sent) if (state.records[k].updatedAt === at) delete state.dirty[k];
       }
@@ -1009,13 +1029,13 @@
         stMsg(res.ok ? `連線成功，雲端目前有 ${(res.records || []).filter((r) => r.updatedAt && r.status !== "pending").length} 筆已填資料。` : res.error || "連線失敗", res.ok ? "ok" : "err");
       } else if (act === "stInit") {
         if (!cur.token) return stMsg("初始化需要同步密碼", "err");
-        // 防呆：雲端已有票數時，必須打字確認，避免開票夜誤按清光
+        // 雲端已有票數時先講清楚：初始化只補缺少的列，不會清空
         const have = await getAll();
         if (!have.ok) return stMsg(have.error || "連線失敗", "err");
         const filled = (have.records || []).filter((r) => r.updatedAt && r.status !== "pending").length;
         if (filled > 0) {
-          const ans = await ask({ title: "雲端已經有票數", html: `<p>雲端現在有 <b>${filled}</b> 筆票數。初始化會把它們<b>全部清空</b>，無法復原。</p><p>真的要清空，請在下面輸入：<b>我要清空</b></p>`, ok: "清空", cancel: "取消", danger: true, input: "我要清空" });
-          if (ans === null || ans.trim() !== "我要清空") return stMsg("已取消，雲端資料沒有動。", "ok");
+          const go = await ask({ title: "雲端已經有票數", html: `<p>雲端現在有 <b>${filled}</b> 筆票數。</p><p>初始化<b>不會動到已經填的票數</b>，只會補上缺少的列，並重做「彙總」分頁。</p><p>要把票數清空，請到試算表按「開票工具 → 全部歸零」。</p>`, ok: "繼續初始化", cancel: "取消" });
+          if (!go) return stMsg("已取消，雲端資料沒有動。", "ok");
         } else if (!(await ask({ title: "建立空白表格？", html: `<p>雲端目前沒有票數資料，要建立空白表格嗎？</p>`, ok: "建立", cancel: "取消" }))) {
           return stMsg("已取消。", "ok");
         }
