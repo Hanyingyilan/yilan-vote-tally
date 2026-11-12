@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>回報員使用說明｜礁溪鄉開票統計</title>
+<style>
+  :root {
+    --bg: #f3f4f6; --surface: #ffffff; --soft: #eceef2; --ink: #15171c; --muted: #5b616e;
+    --line: #d8dbe2; --accent: #a63a35; --accent-soft: #fbeceb; --gold: #e0c85c;
+    --done: #12733a; --done-soft: #e2f3e7; --counting: #e08a00; --danger: #b3261e;
+    --font: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --serif: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
+    color-scheme: light;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 20px/1.6 var(--font); }
+  h1, h2, h3, p, ol, ul { margin: 0; padding: 0; }
+  b { font-weight: 700; }
+
+  .top { background: var(--accent); color: #fff; border-bottom: 4px solid var(--gold); padding: 20px 16px 18px; }
+  .top h1 { font: 700 30px/1.25 var(--serif); letter-spacing: .04em; }
+  .top p { margin-top: 6px; font-size: 18px; opacity: .92; }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  main.wrap { padding: 18px 16px 40px; }
+
+  .rule { background: var(--surface); border: 2px solid var(--ink); border-radius: 10px; padding: 14px 16px; font-size: 22px; line-height: 1.5; }
+  .rule small { display: block; margin-top: 4px; font-size: 17px; color: var(--muted); }
+
+  h2 { font: 700 24px/1.3 var(--serif); margin: 30px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--ink); }
+
+  .steps { list-style: none; counter-reset: step; }
+  .steps > li { counter-increment: step; position: relative; padding: 0 0 22px 58px; }
+  .steps > li::before { content: counter(step); position: absolute; left: 0; top: -8px; width: 46px; text-align: center; font: 700 46px/1.2 var(--serif); color: var(--ink); }
+  .steps h3 { font-size: 23px; line-height: 1.35; }
+  .steps p { margin-top: 4px; color: #2c3039; }
+
+  /* 畫面上會看到的樣子（照網站的顏色做的小樣本） */
+  .see { margin-top: 10px; }
+  .see-label { font-size: 15px; color: var(--muted); margin-bottom: 4px; }
+  .toast { display: inline-block; background: var(--ink); color: #fff; border-radius: 999px; padding: 8px 18px; font-size: 18px; }
+  .station { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--line); border-left: 6px solid #c3c8d1; border-radius: 10px; padding: 10px 12px; }
+  .station .no { font: 700 24px/1 var(--font); margin-right: 14px; }
+  .station .nm { flex: 1; font-weight: 700; line-height: 1.3; }
+  .station .nm small { display: block; font-weight: 400; font-size: 15px; color: var(--muted); }
+  .station .st { font-size: 16px; color: var(--muted); }
+  .field { display: flex; align-items: center; justify-content: space-between; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin-top: 6px; }
+  .field span { font-weight: 700; }
+  .field i { font-style: normal; font: 700 24px/1 var(--font); border: 2px solid var(--ink); border-radius: 8px; min-width: 96px; padding: 8px 12px; text-align: right; }
+  .btn { display: block; border-radius: 10px; padding: 12px 14px; text-align: center; font-weight: 700; font-size: 20px; color: #fff; margin-top: 6px; }
+  .btn.send { background: var(--accent); }
+  .btn.done { background: var(--done); }
+  .btn.counting { background: var(--counting); color: #231400; }
+  .banner { border-radius: 10px; padding: 10px 14px; font-weight: 700; }
+  .banner.ok { background: var(--done-soft); color: var(--done); font-size: 22px; }
+  .banner.warn { background: var(--accent-soft); color: var(--danger); }
+
+  .cases { list-style: none; }
+  .cases > li { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+  .cases h3 { font-size: 21px; line-height: 1.4; }
+  .cases p { margin-top: 4px; }
+  .cases .banner { display: inline-block; padding: 4px 10px; font-size: 19px; }
+  .digits { font: 700 22px/1 ui-monospace, Menlo, Consolas, monospace; background: var(--soft); border-radius: 6px; padding: 2px 8px; letter-spacing: .08em; white-space: nowrap; }
+  .link { display: block; margin-top: 8px; font: 16px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--muted); word-break: break-all; }
+  .link mark { background: #fff3a8; color: var(--ink); font-weight: 700; padding: 1px 3px; border-radius: 4px; }
+
+  .foot { margin-top: 22px; font-size: 18px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+
+  @media (min-width: 700px) {
+    .top { padding: 28px 16px 24px; }
+    .top h1 { font-size: 36px; }
+  }
+  @media print {
+    @page { size: A4; margin: 11mm 12mm; }
+    body { background: #fff; font-size: 11.5pt; line-height: 1.45; }
+    .top { background: none; color: #000; border-bottom: 2pt solid #000; padding: 0 0 6pt; }
+    .top h1 { font-size: 20pt; }
+    .top p { font-size: 11pt; opacity: 1; margin-top: 2pt; }
+    .wrap { max-width: none; }
+    main.wrap { padding: 8pt 0 0; }
+    .rule { font-size: 13pt; padding: 6pt 10pt; }
+    .rule small { font-size: 10pt; }
+    h2 { font-size: 14pt; margin: 10pt 0 6pt; padding-bottom: 2pt; }
+    .steps > li { padding: 0 0 7pt 34pt; break-inside: avoid; }
+    .steps > li::before { font-size: 24pt; width: 26pt; top: -5pt; }
+    .steps h3 { font-size: 12.5pt; }
+    .see { margin-top: 3pt; }
+    .see-label { display: none; }
+    .toast, .btn, .banner, .field, .station { font-size: 10.5pt; padding: 3pt 8pt; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .btn { display: inline-block; margin: 2pt 4pt 0 0; }
+    .field i, .station .no { font-size: 12pt; padding: 2pt 6pt; min-width: 50pt; }
+    .banner.ok { font-size: 11pt; }
+    .cases { column-count: 2; column-gap: 10pt; }
+    .cases > li { break-inside: avoid; padding: 5pt 8pt; margin-bottom: 5pt; }
+    .cases h3 { font-size: 11.5pt; }
+    .cases .banner { font-size: 10.5pt; }
+    .digits { font-size: 11pt; }
+    .link { font-size: 8.5pt; margin-top: 2pt; }
+    .foot { font-size: 10pt; margin-top: 6pt; padding-top: 5pt; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <h1>回報員使用說明</h1>
+    <p>礁溪鄉開票，用手機回報票數</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <p class="rule"><b>每次都從 LINE 那則訊息的連結點進去。</b>
+    <small>那條連結是你專用的，點了就會自動登入。請不要轉傳給別人。</small></p>
+
+  <h2>怎麼回報</h2>
+  <ol class="steps">
+    <li>
+      <h3>點 LINE 裡負責人傳給你的連結</h3>
+      <p>畫面跳出你的名字，就是登入好了。</p>
+      <div class="see"><div class="see-label">你會看到</div><span class="toast">王小明，可以開始回報了</span></div>
+    </li>
+    <li>
+      <h3>找到你負責的投開票所，點進去</h3>
+      <p>在「搜尋編號或村」打編號最快。回報過一次後，那一所會排在最上面「上次回報的」。</p>
+      <div class="see"><div class="see-label">你會看到</div>
+        <div class="station"><span class="no">0216</span><span class="nm">白雲社區活動中心<small>鄰 1-9</small></span><span class="st">未開票</span></div>
+      </div>
+    </li>
+    <li>
+      <h3>照開票報告表，填每位候選人的票數和無效票</h3>
+      <p>上面一排可以切換鄉長、鄉民代表、村長、縣長、縣議員。哪一種開好了就填哪一種，不用等全部開完。</p>
+      <div class="see"><div class="see-label">你會看到</div>
+        <div class="field"><span>1 號　候選人</span><i>312</i></div>
+        <div class="field"><span>無效票</span><i>4</i></div>
+      </div>
+    </li>
+    <li>
+      <h3>按「完成並送出」，核對後選一個</h3>
+      <p>畫面會問「是這一所嗎？」，先看編號和總票數對不對。這一種選舉的票開完了按綠色，還在開、想先報目前的數字按橘色。</p>
+      <div class="see"><div class="see-label">你會看到</div>
+        <span class="btn send">完成並送出</span>
+        <span class="btn done">開完了，送出</span>
+        <span class="btn counting">還在開，先送出目前的</span>
+      </div>
+    </li>
+    <li>
+      <h3>看到「已送出！」才算完成</h3>
+      <p>接著填下一種選舉，或按「回到清單」。</p>
+      <div class="see"><div class="see-label">你會看到</div><div class="banner ok">✅ 已送出！</div></div>
+    </li>
+  </ol>
+
+  <h2>遇到這些情況</h2>
+  <ul class="cases">
+    <li>
+      <h3>出現 <span class="banner warn">⚠ 還沒送出！</span></h3>
+      <p><b>不用重填。</b>票數還在手機裡，走到收訊好的地方、網站開著，就會自動送出。看到「已送出！」再離開。</p>
+    </li>
+    <li>
+      <h3>畫面要你輸入密碼</h3>
+      <p>密碼是你那條連結<b>最後面的 6 個數字</b>。或者回 LINE 再點一次連結，就不用輸入。</p>
+      <span class="link">…/?openExternalBrowser=1#k=<mark>687254</mark></span>
+    </li>
+    <li>
+      <h3>填錯了</h3>
+      <p>再點進同一所，把數字改成對的，重新送出一次。新的會蓋掉舊的。</p>
+    </li>
+    <li>
+      <h3>送出前提醒「某某在幾點幾分填過」</h3>
+      <p>先看是不是點錯投開票所。確定是你負責的那一所，再送出。</p>
+    </li>
+    <li>
+      <h3>出現「⚠ 密碼失效」或「這個連結不能用了」</h3>
+      <p>請聯絡負責人，拿新的連結。</p>
+    </li>
+  </ul>
+
+  <p class="foot">數字以開票所張貼的開票報告表為準，看清楚再填。送出後負責人那邊大約 20 秒內就會看到。</p>
+</main>
+</body>
+</html>
