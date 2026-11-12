@@ -38,6 +38,7 @@ var PASS_MIN = 6;        // 回報員密碼至少幾個字（太短容易被猜�
 var LOG = '修改記錄';
 var LOG_HEADER = ['時間', '誰送的', '編號', '投開票所', '選舉', '改之前', '改之後', '原本是誰填的', '原本的時間'];
 var SITE_URL = 'https://hanyingyilan.github.io/yilan-vote-tally/'; // 專屬連結用的網站網址
+var CLOCK_SLACK = 30000; // 手機時鐘和這裡差不到 30 秒，當作是準的
 var CACHE_SEC = 15;      // 讀取結果快取秒數
 var CACHE_CHUNK = 30000; // 快取每段的字數（CacheService 單筆上限 100KB，中文一個字最多 3 bytes）
 
@@ -49,10 +50,31 @@ function doGet(e) {
   try {
     var action = (e && e.parameter && e.parameter.action) || 'all';
     if (action !== 'all') return json_({ ok: false, error: 'unknown action' });
-    return textOut_(readCached_(false)); // 公開讀取：不含填表人名字
+    return textOut_(withNow_(readCached_(false))); // 公開讀取：不含填表人名字
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
+}
+
+// 每次讀取都附上「這裡現在幾點」（now），手機用它校正自己不準的時鐘。加在快取之後，所以一定是當下的時間。
+function withNow_(text) {
+  return '{"now":' + Date.now() + ',' + text.slice(1);
+}
+
+// 「時間較新的蓋掉舊的」是照每一筆的 updatedAt，而那是手機自己的時鐘。
+// 手機時鐘快了，它填的那一筆別人就一直改不掉；慢了，它自己改的又送不進來。所以收到時先校正：
+// sentAt 是手機按下送出那一刻它自己的時間，和這裡收到的時間（arrived）一比，就知道這支手機差多少。
+// 校正後仍然不准比現在晚。
+function fixTimes_(records, sentAt, arrived) {
+  var skew = Number(sentAt) ? arrived - Number(sentAt) : 0;
+  if (Math.abs(skew) <= CLOCK_SLACK) skew = 0;
+  records.forEach(function (r) {
+    var t = Number(r.updatedAt) || 0;
+    if (!t) return;
+    t += skew;
+    if (t > arrived) t = arrived;
+    r.updatedAt = t < 1 ? 1 : t;
+  });
 }
 
 function textOut_(text) {
@@ -73,6 +95,7 @@ function readCached_(withNames) {
 
 function doPost(e) {
   var lock = null;
+  var arrived = Date.now(); // 收到的時間（排隊等鎖之前就先記下來）
   try {
     var body = JSON.parse(e.postData.contents);
     var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
@@ -83,7 +106,7 @@ function doPost(e) {
 
     // 帶密碼的讀取：含填表人名字。只讀不寫，所以不用排隊
     if (body.action === 'read') {
-      var text = readCached_(true);
+      var text = withNow_(readCached_(true));
       // 用回報員密碼登入的，順便告訴手機「你是誰」，手機就不用再問名字
       return textOut_(who.name ? '{"who":' + JSON.stringify(who.name) + ',' + text.slice(1) : text);
     }
@@ -95,6 +118,7 @@ function doPost(e) {
       var records = body.records || [];
       // 回報員密碼：填表人一律記名單上的名字，不管手機上打什麼
       if (who.name) records.forEach(function (r) { r.by = who.name; });
+      fixTimes_(records, body.sentAt, arrived);
       var count = write_(records, false, who.name || '');
       cacheClear_();
       return json_({ ok: true, count: count });
