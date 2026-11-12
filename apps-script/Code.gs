@@ -423,6 +423,12 @@ function activeTown_() {
   for (var i = 0; i < TOWN_LIST.length; i++) {
     if (TOWN_LIST[i] !== DEFAULT_TOWN && name.indexOf(TOWN_LIST[i] + ' ') === 0) return TOWN_LIST[i];
   }
+  // 這份試算表只給一個鄉鎮市用、而且不是宜蘭市（例如礁溪鄉自己一份試算表）：不管點在哪個分頁，都算那個鄉鎮市
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss.getSheetByName(DETAIL)) {
+    var only = TOWN_LIST.filter(function (t) { return t !== DEFAULT_TOWN && ss.getSheetByName(detailName_(t)); });
+    if (only.length === 1) return only[0];
+  }
   return DEFAULT_TOWN;
 }
 
