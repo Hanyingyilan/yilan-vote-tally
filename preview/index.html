@@ -1,106 +1,16 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#a63a35">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>礁溪鄉開票統計</title>
   <meta name="robots" content="noindex">
-  <meta name="description" content="礁溪鄉各投開票所開票回報與即時統計。">
-  <meta property="og:title" content="礁溪鄉開票統計">
-  <meta property="og:description" content="礁溪鄉各投開票所開票回報與即時統計。">
-  <meta property="og:site_name" content="礁溪鄉開票統計">
-  <meta property="og:type" content="website">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23a63a35'/%3E%3Cpath d='M8 17l5 5 11-12' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <!-- 只有標題用襯線粗體，所以只下載標題那幾個字，手機載入很快 -->
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@900&text=%E5%AE%9C%E8%98%AD%E5%B8%82%E7%BE%85%E6%9D%B1%E9%8E%AE%E8%98%87%E6%BE%B3%E9%A0%AD%E5%9F%8E%E7%A4%81%E6%BA%AA%E9%84%89%E5%A3%AF%E5%9C%8D%E5%93%A1%E5%B1%B1%E5%86%AC%E4%BA%94%E7%B5%90%E4%B8%89%E6%98%9F%E5%A4%A7%E5%90%8C%E5%8D%97%E9%96%8B%E7%A5%A8%E7%B5%B1%E8%A8%88&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20261112103455">
+  <!-- 預覽版已搬到礁溪鄉自己的網址；舊連結（含 #k= 專屬連結）自動轉過去 -->
+  <script>location.replace("../jiaoxi/" + location.hash);</script>
+  <meta http-equiv="refresh" content="1; url=../jiaoxi/">
 </head>
-<body>
-  <!-- 只有預覽版才有這一條（正式網站沒有） -->
-  <div style="background:#15171c;color:#fff;text-align:center;font-size:15px;line-height:1.4;padding:4px 8px">預覽版（測試用，不是正式網站）</div>
-  <header class="top">
-    <div class="top-row">
-      <div class="brand">
-        <h1 id="title">宜蘭市開票統計</h1>
-        <p id="subtitle" class="muted"></p>
-      </div>
-      <div class="top-actions">
-        <button type="button" id="syncChip" class="chip" aria-live="polite">僅存本機</button>
-        <button type="button" id="btnSettings" class="icon-btn" aria-label="設定">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
-        </button>
-      </div>
-    </div>
-    <nav class="tabs" role="tablist" aria-label="頁面">
-      <button type="button" role="tab" id="t-entry" data-tab="entry" aria-controls="tab-entry">填寫票數</button>
-      <button type="button" role="tab" id="t-overview" data-tab="overview" aria-controls="tab-overview">統計總覽</button>
-    </nav>
-  </header>
-
-  <main>
-    <div class="racebar" id="raceBar" role="group" aria-label="選舉項目"></div>
-
-    <section id="tab-entry" role="tabpanel" tabindex="-1" aria-labelledby="t-entry">
-      <div class="filters">
-        <div class="mode" id="modeSeg" role="group" aria-label="填寫對象">
-          <button type="button" data-mode="station" aria-pressed="true">各投開票所</button>
-          <button type="button" data-mode="total" aria-pressed="false">合計</button>
-        </div>
-        <div class="seg" id="districtSeg" role="group" aria-label="市民代表選舉區"></div>
-        <div class="filter-row">
-          <label class="search">
-            <span class="sr-only">搜尋投開票所</span>
-            <input type="search" id="q" placeholder="搜尋編號或里" autocomplete="off">
-          </label>
-          <label class="select">
-            <span class="sr-only">狀態</span>
-            <select id="statusFilter">
-              <option value="all">全部狀態</option>
-              <option value="todo">未完成</option>
-              <option value="pending">未開票</option>
-              <option value="counting">開票中</option>
-              <option value="done">已完成</option>
-            </select>
-          </label>
-        </div>
-      </div>
-      <div id="list"></div>
-    </section>
-
-    <section id="tab-overview" role="tabpanel" aria-labelledby="t-overview" hidden>
-      <div id="overviewRoot"></div>
-    </section>
-
-    <footer class="foot muted">
-      <p id="source"></p>
-      <p>候選人名單取自中選會公開資料，開票前請再核對有無異動。票數為各投開票所人工登錄的暫計值，非官方結果；正式結果以中央選舉委員會公告為準。</p>
-    </footer>
-  </main>
-
-  <dialog id="editor" aria-labelledby="edTitle"></dialog>
-  <dialog id="settings" aria-labelledby="stTitle"></dialog>
-  <dialog id="pw" aria-labelledby="pwTitle"></dialog>
-  <dialog id="ask" aria-labelledby="askTitle"></dialog>
-  <div id="toast" role="status" aria-live="polite"></div>
-  <div id="oldBrowser" hidden>
-    <p><b>這支手機的瀏覽器太舊，沒辦法使用。</b></p>
-    <p>請改用 Chrome 或 Safari 的最新版開啟，或換一支手機。如果是從 LINE 點進來的，請按右上角選「用預設瀏覽器開啟」。</p>
-  </div>
-
-  <script src="config.js?v=20261112103455"></script>
-  <!-- 一個鄉鎮市一個資料檔；要多開一個鄉鎮市就多加一行（見 tools/build_towns.py） -->
-  <script src="data/towns/050.js?v=20261112103455"></script>
-  <script src="app.js?v=20261112103455"></script>
-  <script>
-    // 程式沒有成功啟動（瀏覽器太舊看不懂）時，顯示上面那段提示。這段刻意用最舊的寫法。
-    window.addEventListener('load', function () {
-      setTimeout(function () {
-        if (!window.__tallyReady) { var el = document.getElementById('oldBrowser'); el.hidden = false; el.style.display = 'block'; }
-      }, 500);
-    });
-  </script>
+<body style="font-family:sans-serif;font-size:20px;padding:24px">
+  <p>礁溪鄉開票統計已經搬到新網址。</p>
+  <p><a href="../jiaoxi/">沒有自動跳轉的話，請點這裡</a></p>
 </body>
 </html>
