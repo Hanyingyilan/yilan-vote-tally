@@ -849,7 +849,9 @@
   }
 
   /* ---------- 同步（Google Apps Script） ---------- */
-  const syncUrl = () => (state.settings.url || CFG.syncUrl || "").trim();
+  // 後端網址：這支手機自己在 ⚙ 貼的 ＞ config.js 裡這個鄉鎮市專用的（syncUrls）＞ 共用的（syncUrl）
+  const defaultSyncUrl = String((CFG.syncUrls && CFG.syncUrls[townName]) || CFG.syncUrl || "");
+  const syncUrl = () => (state.settings.url || defaultSyncUrl).trim();
   function normalize(raw) {
     const id = /^\d+$/.test(String(raw.id)) ? String(raw.id).padStart(4, "0") : String(raw.id);
     const s = byId[id], race = raceByKey[raw.race];
@@ -966,7 +968,7 @@
         <label class="slim">你的名字（會記在每筆資料的填表人）<input type="text" id="stBy" value="${esc(s.by)}" placeholder="例如 小明"></label>
         <h3>Google 試算表同步</h3>
         <p class="note">沒填網址就只存在這支手機／這台電腦的瀏覽器裡。設定步驟見 README。</p>
-        <label class="slim">Apps Script 網址（結尾是 /exec）<input type="url" id="stUrl" value="${esc(s.url || CFG.syncUrl || "")}" placeholder="https://script.google.com/macros/s/…/exec"></label>
+        <label class="slim">Apps Script 網址（結尾是 /exec）<input type="url" id="stUrl" value="${esc(s.url || defaultSyncUrl)}" placeholder="https://script.google.com/macros/s/…/exec"></label>
         <label class="slim">同步密碼（填表人才需要；只想看總覽可留空）<input type="password" id="stToken" value="${esc(s.token)}" autocomplete="off"></label>
         <p class="msg" id="stMsg" role="status"></p>
         <div class="row"><button type="button" class="btn" data-act="stTest">測試連線</button><button type="button" class="btn" data-act="stInit">初始化雲端表格</button></div>
@@ -978,7 +980,8 @@
     </form>`;
     dlg.showModal();
   }
-  const readSettings = () => ({ url: $("#stUrl").value.trim(), token: $("#stToken").value, by: $("#stBy").value.trim() });
+  // 網址欄沒改（還是 config.js 的預設）就不另外記在手機裡，之後 config.js 換網址，這支手機才會跟著換
+  const readSettings = () => { const u = $("#stUrl").value.trim(); return { url: u === defaultSyncUrl.trim() ? "" : u, token: $("#stToken").value, by: $("#stBy").value.trim() }; };
   function stMsg(text, kind = "") { const m = $("#stMsg"); m.textContent = text; m.className = "msg " + kind; }
   async function settingsAction(act) {
     if (act === "stClose") return $("#settings").close();
