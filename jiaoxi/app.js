@@ -48,22 +48,28 @@
     { key: "council", label: "縣議員", full: `宜蘭縣議員（${C.council.area}）`, scope: "all", applies: () => true, groupOf: () => "all", groups: single(C.council.area, C.council.seats, C.council.cands) },
   ];
   const raceByKey = Object.fromEntries(RACES.map((r) => [r.key, r]));
+  // 統計頁每一個分類的最上面都固定放兩塊：市長（全部候選人）和縣長（主要兩位放大，其他人小字）。
+  // 縣長既然每頁都看得到，統計頁的分類列就不再放「縣長」。填寫票數那一頁不受影響，五種選舉照舊都能填。
+  const PINNED_ONLY = "county";
+  const COUNTY_MAIN = ["林國漳", "吳宗憲"];
   const groupOf = (race, s) => race.groups[race.groupOf(s)];
   // 市民代表、縣議員是一個選區選好幾席：標題一律寫成「第1選舉區（應選 4 席）」
   const multiSeat = (race) => race.key === "rep" || race.key === "council";
   const seatTag = (race, g) => (multiSeat(race) ? `<span class="seats">（應選 ${g.seats} 席）</span>` : "");
   const councilArea = String(C.council.area || "").replace(/^宜蘭縣/, "");
   // 「合計」範圍：直接填整個範圍加起來的票數，和各投開票所分開存放（id：ALL、D1…D4、V:里名）
+  // COUNTYWIDE：全宜蘭縣的縣長票數，由負責人直接輸入，顯示在統計頁最上面（宜蘭市只是全縣的一部分，各所加總不等於全縣）
   const SCOPES = [
+    { id: "COUNTYWIDE", kind: "county", name: "宜蘭縣全縣合計", district: null, village: null, neighbors: "", address: "", note: "" },
     { id: "ALL", kind: "all", name: `${townName}${L.whole}合計`, district: null, village: null, neighbors: "", address: "", note: "" },
     ...districtIds.map((d) => ({ id: `D${d}`, kind: "district", name: `第${d}選舉區合計`, district: d, village: null, neighbors: "", address: "", note: "" })),
     ...districtIds.flatMap((d) => villagesOf(d).map((v) => ({ id: `V:${v}`, kind: "village", name: `${v}合計`, district: d, village: v, neighbors: "", address: "", note: "" }))),
   ];
   for (const sc of SCOPES) byId[sc.id] = sc;
   // 里長只有「里」層級有合計；市民代表沒有「全市」合計；其餘選舉三種層級都有
-  const scopeHas = (sc, r) => (r.key === "chief" ? sc.kind === "village" : r.key === "rep" ? sc.kind !== "all" : true);
+  const scopeHas = (sc, r) => (sc.kind === "county" ? r.key === PINNED_ONLY : r.key === "chief" ? sc.kind === "village" : r.key === "rep" ? sc.kind !== "all" : true);
   const racesOf = (s) => (s.kind ? RACES.filter((r) => scopeHas(s, r)) : RACES.filter((r) => r.applies(s) && groupOf(r, s)));
-  const scopeStations = (sc) => (sc.kind === "all" ? stations : sc.kind === "district" ? stationsOf(sc.district) : stations.filter((s) => s.village === sc.village));
+  const scopeStations = (sc) => (sc.kind === "county" ? [] : sc.kind === "all" ? stations : sc.kind === "district" ? stationsOf(sc.district) : stations.filter((s) => s.village === sc.village));
 
   /* ---------- 防呆：數字合不合理 ---------- */
   // 依據：中選會「選舉資料庫」2014–2024 年共 12 場選舉（縣長、市長、總統、立委）的宜蘭市各里得票，
@@ -71,7 +77,7 @@
   // 門檻 1,200 ＝ 歷年最多 × 1.25。超過只是「先問一次」，確認沒打錯仍可送出。
   const HIST_MAX = 960;
   const LIMIT_STATION = 1200;
-  const limitFor = (s) => (s.kind ? LIMIT_STATION * scopeStations(s).length : LIMIT_STATION);
+  const limitFor = (s) => (s.kind === "county" ? Infinity : s.kind ? LIMIT_STATION * scopeStations(s).length : LIMIT_STATION); // 全縣的數字沒有可比的上限
 
   /* ---------- 小工具 ---------- */
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -308,7 +314,7 @@
     return out;
   }
   function renderRaceBar() {
-    $("#raceBar").innerHTML = RACES.map((r) => {
+    $("#raceBar").innerHTML = RACES.filter((r) => !(ui.tab === "overview" && r.key === PINNED_ONLY)).map((r) => {
       const a = agg(r, stations);
       const fl = Object.keys(flagsFor(r)).length;
       return `<button type="button" data-race="${r.key}" aria-pressed="${r.key === ui.race}"><span>${esc(r.label)}</span><small>${a.done}/${a.n}${fl ? `<b class="flagn">⚠${fl}</b>` : ""}</small></button>`;
@@ -371,7 +377,7 @@
     const r = getRec(sc.id, race.key);
     const st = r?.status || "pending";
     const k = calc(r);
-    const tag = sc.kind === "all" ? L.whole : sc.kind === "district" ? `${sc.district}區` : L.unit;
+    const tag = sc.kind === "county" ? "全縣" : sc.kind === "all" ? L.whole : sc.kind === "district" ? `${sc.district}區` : L.unit;
     return `<li><button type="button" class="st" data-id="${esc(sc.id)}" data-s="${st}">
       <span class="sid">${tag}</span>
       <span class="st-main"><span class="name">${esc(sc.name)}</span>${sc.kind === "village" ? `<span class="sub">第${sc.district}選舉區</span>` : ""}</span>
@@ -473,11 +479,12 @@
     edRace = rs.some((r) => r.key === raceKey) ? raceKey : rs[0].key;
     edSnap = Object.fromEntries(rs.map((r) => [r.key, getRec(id, r.key)?.updatedAt || 0]));
     const eyebrow = !s.kind ? `第${s.district}選舉區　${esc(s.village)}`
-      : s.kind === "all" ? `合計　${L.whole}` : s.kind === "district" ? `合計　第${s.district}選舉區` : `合計　第${s.district}選舉區　${esc(s.village)}`;
+      : s.kind === "county" ? "合計　全縣" : s.kind === "all" ? `合計　${L.whole}` : s.kind === "district" ? `合計　第${s.district}選舉區` : `合計　第${s.district}選舉區　${esc(s.village)}`;
     const title = s.kind ? esc(s.name) : `${s.id} ${esc(s.name)}`;
-    const sub = s.kind ? "這是整個範圍加起來的票數，和各投開票所的票數分開存放，不會重複加總。" : `鄰 ${esc(s.neighbors)}　${esc(s.address)}`;
+    const sub = s.kind === "county" ? "這是全宜蘭縣加起來的票數，會顯示在統計頁最上面。和各投開票所的票數分開存放，不會重複加總。"
+      : s.kind ? "這是整個範圍加起來的票數，和各投開票所的票數分開存放，不會重複加總。" : `鄰 ${esc(s.neighbors)}　${esc(s.address)}`;
     const dlg = $("#editor");
-    dlg.innerHTML = `<form class="ed" id="edForm" autocomplete="off" novalidate>
+    dlg.innerHTML = `<form class="ed${s.kind === "county" ? " wide" : ""}" id="edForm" autocomplete="off" novalidate>
       <header>
         <div>
           <p class="eyebrow">${eyebrow}</p>
@@ -704,7 +711,9 @@
   }
   // 一份候選人得票：標題＋完成進度＋各候選人票數長條。a = agg 的結果
   // hero：統計頁最上面那一塊（市長／縣長／縣議員的全市得票）。電腦版會橫排、放到最大。
-  function candBlock(g, a, title, compact = false, hero = false) {
+  // opt.pin：固定在每個分類最上面的那一塊（手機上會縮小一點）。opt.mains：只把這幾位放大，其他人小字排在旁邊。
+  // opt.prog：右上角那一行改放別的說明（不是「幾所完成」）。opt.noBar：不畫完成進度條。opt.footExtra：最下面多一行。
+  function candBlock(g, a, title, compact = false, hero = false, opt = {}) {
     const list = sortedCands(g, a.votes);
     const max = Math.max(1, ...list.map((c) => a.votes[c.no] || 0));
     const hasVotes = a.valid > 0;
@@ -712,7 +721,7 @@
     // 席次邊界同票時標「同票」，不亮領先色
     const boundaryTie = hasVotes && list.length > g.seats && topVal(g.seats - 1) === topVal(g.seats);
     const solo = g.cands.length === 1;
-    const rows = list.map((c, i) => {
+    const row = (c, i) => {
       const v = a.votes[c.no] || 0;
       const tied = boundaryTie && v === topVal(g.seats - 1);
       const inSeat = hasVotes && v > 0 && i < g.seats && !tied;
@@ -721,12 +730,18 @@
         <span class="who">${esc(c.name)}${partyTag(c)}${tag}</span>
         <span class="n">${fmt(v)}</span><span class="p">${pct(v, a.valid)}</span>
         ${compact ? "" : `<span class="track" aria-hidden="true"><i style="width:${(v / max) * 100}%"></i></span>`}</div>`;
-    }).join("");
-    const prog = `<p class="res-prog"><b>${a.done}</b> / ${a.n} 所完成${a.counting ? `<span>開票中 ${a.counting}</span>` : ""}</p>`;
+    };
+    const rows = list.map(row).join("");
+    const mains = opt.mains ? list.filter((c) => opt.mains.includes(c.name)) : [];
+    const duo = mains.length >= 2 && mains.length < list.length;
+    const minorRow = (c) => `<div class="minor-row"><span class="f-no">${esc(c.no)}</span><span class="who">${esc(c.name)}</span><span class="n">${fmt(a.votes[c.no] || 0)}</span><span class="p">${pct(a.votes[c.no] || 0, a.valid)}</span></div>`;
+    const prog = opt.prog || `<p class="res-prog"><b>${a.done}</b> / ${a.n} 所完成${a.counting ? `<span>開票中 ${a.counting}</span>` : ""}</p>`;
     const bar = `<div class="bar" aria-hidden="true"><i style="width:${a.n ? (a.done / a.n) * 100 : 0}%"></i></div>`;
-    const foot = compact ? "" : `<p class="res-foot">有效票 <b>${fmt(a.valid)}</b>　無效票 <b>${fmt(a.invalid)}</b>${g.seats > 1 ? `<span>紅色是目前排在前 ${g.seats} 名（應選 ${g.seats} 席）</span>` : ""}</p>`;
-    const body = rows ? `<div class="cand-list${list.length > 6 ? " many" : ""}" style="--n:${list.length}">${rows}</div>` : `<p class="note">沒有登記候選人</p>`;
-    return `<section class="card result ${compact ? "compact" : ""}${hero ? "hero" : ""}"><div class="res-head"><h2>${title}</h2>${prog}</div>${compact ? "" : bar}${body}${foot}</section>`;
+    const foot = compact ? "" : `<p class="res-foot">有效票 <b>${fmt(a.valid)}</b>　無效票 <b>${fmt(a.invalid)}</b>${g.seats > 1 ? `<span>紅色是目前排在前 ${g.seats} 名（應選 ${g.seats} 席）</span>` : ""}${opt.footExtra || ""}</p>`;
+    const body = duo
+      ? `<div class="duo"><div class="cand-list" style="--n:${mains.length}">${mains.map((c) => row(c, list.indexOf(c))).join("")}</div><div class="minor">${list.filter((c) => !mains.includes(c)).map(minorRow).join("")}</div></div>`
+      : rows ? `<div class="cand-list${list.length > 6 ? " many" : ""}" style="--n:${list.length}">${rows}</div>` : `<p class="note">沒有登記候選人</p>`;
+    return `<section class="card result ${compact ? "compact" : ""}${hero ? "hero" : ""}${opt.pin ? " pin" : ""}"><div class="res-head"><h2>${title}</h2>${prog}</div>${compact || opt.noBar ? "" : bar}${body}${foot}</section>`;
   }
   function voteCells(g, a) {
     return g.cands.map((c) => `<td>${fmt(a.votes[c.no] || 0)}</td>`).join("") + `<td>${fmt(a.invalid)}</td><td>${fmt(a.valid)}</td><td>${fmt(a.total)}</td>`;
@@ -739,7 +754,7 @@
   function compareCard(race) {
     const rows = [];
     for (const sc of SCOPES) {
-      if (!scopeHas(sc, race)) continue;
+      if (sc.kind === "county" || !scopeHas(sc, race)) continue; // 全縣的數字和宜蘭市各所加總本來就不一樣，不比對
       const r = getRec(sc.id, race.key);
       if (!r || r.status === "pending") continue;
       const g = groupOf(race, sc);
@@ -799,7 +814,8 @@
         <thead><tr><th>${L.unit}</th><th>完成</th>${headCells(g)}</tr></thead><tbody>${villRows}</tbody></table></div></section>`;
       // 最上面一整排是候選人得票（電腦版橫排、最大），接著是要確認的所，再來才是各區、各里（村）的表
       const title = race.key === "council" ? `宜蘭縣議員　${esc(councilArea)}${seatTag(race, g)}` : `${esc(race.full)}　${L.whole}得票`;
-      main = `${candBlock(g, all, title, false, true)}${flagCard}<div class="ov-grid">${compare || distTable ? `<div class="stack">${compare}${distTable}</div>` : ""}<div class="stack">${villTable}</div></div>`;
+      // 首長（市長／鄉鎮長）的得票已經固定在最上面，那一頁不用再放一次
+      main = `${race.key === "mayor" ? "" : candBlock(g, all, title, false, true)}${flagCard}<div class="ov-grid">${compare || distTable ? `<div class="stack">${compare}${distTable}</div>` : ""}<div class="stack">${villTable}</div></div>`;
     } else {
       const line = `<p class="sumline"><b>${esc(race.full)}${race.key === "rep" ? `<span class="seats">（共應選 ${districtIds.reduce((n, d) => n + race.groups[String(d)].seats, 0)} 席）</span>` : ""}</b><span><b>${all.done}</b> / ${all.n} 所完成</span><span>有效票 <b>${fmt(all.valid)}</b></span><span>無效票 <b>${fmt(all.invalid)}</b></span></p>`;
       let blocks;
@@ -847,10 +863,20 @@
       <button type="button" class="btn" data-act="print">列印 / 存成 PDF</button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </div></section>`;
-    // 電腦版：不管切到哪一種選舉，最上面都固定放市長（鄉鎮長）的全市（全鄉）得票（切到那一頁時它本來就在最上面，不重複放）
-    const top = raceByKey.mayor;
-    const pinned = top && race.key !== top.key ? `<div class="pin-top">${candBlock(top.groups.all, agg(top, raceStations(top)), `${esc(top.full)}　${L.whole}得票`, false, true)}</div>` : "";
-    $("#overviewRoot").innerHTML = `<div class="ov">${pinned}${main}${stTable}${tools}</div>`;
+    // 不管切到哪一種選舉，最上面都固定放兩塊：縣長（全縣得票，負責人直接輸入）在上，首長（市長／鄉鎮長，各所回報加總）在下
+    const mayor = raceByKey.mayor, county = raceByKey[PINNED_ONLY];
+    const cw = getRec("COUNTYWIDE", PINNED_ONLY);
+    const cwFilled = !!cw && cw.status !== "pending";
+    const ck = calc(cw);
+    const cwAgg = { n: 0, done: 0, counting: 0, votes: cwFilled ? cw.votes || {} : {}, invalid: cwFilled ? ck.invalid : 0, valid: cwFilled ? ck.valid : 0, total: cwFilled ? ck.total : 0 };
+    const cwProg = `<p class="res-prog">${cwFilled ? `${cw.status === "done" ? "已開完" : "開票中"}　${hhmm(cw.updatedAt)} 更新` : "還沒輸入全縣票數"}${
+      state.settings.token ? `<button type="button" class="linkbtn" data-act="countywide">輸入全縣票數</button>` : ""}</p>`;
+    const local = agg(county, raceStations(county));
+    const g0 = county.groups.all;
+    const localLine = `<span>其中${esc(townName)}各投開票所回報加總（${local.done}/${local.n} 所完成）：${g0.cands.filter((c) => COUNTY_MAIN.includes(c.name)).map((c) => `${esc(c.name)} <b>${fmt(local.votes[c.no] || 0)}</b>`).join("　")}</span>`;
+    const countyTop = candBlock(g0, cwAgg, `${esc(county.full)}　全縣得票`, false, true, { pin: true, mains: COUNTY_MAIN, prog: cwProg, noBar: true, footExtra: localLine });
+    const mayorTop = candBlock(mayor.groups.all, agg(mayor, raceStations(mayor)), `${esc(mayor.full)}　${L.whole}得票`, false, true, { pin: race.key !== "mayor" });
+    $("#overviewRoot").innerHTML = `<div class="ov">${countyTop}${mayorTop}${main}${stTable}${tools}</div>`;
   }
 
   /* ---------- 匯出／匯入 ---------- */
@@ -873,7 +899,7 @@
       const g = groupOf(race, s);
       const r = getRec(s.id, race.key);
       const st = r?.status || "pending";
-      const dist = s.kind === "all" ? L.whole : `第${s.district}選舉區`;
+      const dist = s.kind === "county" ? "全縣" : s.kind === "all" ? L.whole : `第${s.district}選舉區`;
       const common = [s.id, dist, s.village || "", s.neighbors || "", s.kind ? `【合計】${s.name}` : s.name, race.full, g.label];
       const meta = [STATUS[st], r?.electors ?? "", r?.by || "", r?.updatedAt ? new Date(r.updatedAt).toLocaleString("zh-TW", { hour12: false }) : "", s.kind ? "合計" : "投開票所"];
       for (const c of g.cands) rows.push([...common, c.no, c.name, c.party, st === "pending" ? "" : r.votes?.[c.no] || 0, ...meta]);
@@ -932,7 +958,7 @@
   }
   function wire(rec) {
     const s = byId[rec.id], race = raceByKey[rec.race], g = groupOf(race, s);
-    return { ...rec, raceLabel: race.full, group: g.label, district: s.district, districtLabel: s.kind === "all" ? L.whole : `第${s.district}選舉區`,
+    return { ...rec, raceLabel: race.full, group: g.label, district: s.district, districtLabel: s.kind === "county" ? "全縣" : s.kind === "all" ? L.whole : `第${s.district}選舉區`,
       village: s.village || "", venue: s.kind ? `【合計】${s.name}` : `${s.id} ${s.name}`, neighbors: s.neighbors || "", kind: s.kind ? "合計" : "投開票所",
       cands: g.cands.map((c) => ({ no: c.no, name: c.name })) };
   }
@@ -1107,6 +1133,7 @@
 
   /* ---------- 事件 ---------- */
   function renderAll() {
+    if (ui.tab === "overview" && ui.race === PINNED_ONLY) ui.race = "mayor"; // 統計頁沒有「縣長」這個分類
     renderRaceBar();
     if (ui.tab === "overview") renderOverview(); else renderList();
     renderChip();
@@ -1132,6 +1159,7 @@
         return;
       }
       if (act === "askPassword") return openPasswordPrompt();
+      if (act === "countywide") { ui.mode = "total"; ui.race = PINNED_ONLY; setTab("entry"); return openEditor("COUNTYWIDE", PINNED_ONLY); }
       if (act === "fix") { ui.mode = "station"; setTab("entry"); return openEditor(t.dataset.id, ui.race); }
       if (act === "pwGo") return void submitPassword();
       if (act === "pwLater") return $("#pw").close();
