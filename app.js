@@ -860,10 +860,8 @@
     const cwAgg = { n: 0, done: 0, counting: 0, votes: cwFilled ? cw.votes || {} : {}, invalid: cwFilled ? ck.invalid : 0, valid: cwFilled ? ck.valid : 0, total: cwFilled ? ck.total : 0 };
     const cwProg = `<p class="res-prog">${cwFilled ? `${cw.status === "done" ? "已開完" : "開票中"}　${hhmm(cw.updatedAt)} 更新` : "還沒輸入全縣票數"}${
       state.settings.token ? `<button type="button" class="linkbtn" data-act="countywide">輸入全縣票數</button>` : ""}</p>`;
-    const local = agg(county, raceStations(county));
     const g0 = county.groups.all;
-    const localLine = `<span>其中宜蘭市各投開票所回報加總（${local.done}/${local.n} 所完成）：${g0.cands.filter((c) => COUNTY_MAIN.includes(c.name)).map((c) => `${esc(c.name)} <b>${fmt(local.votes[c.no] || 0)}</b>`).join("　")}</span>`;
-    const countyTop = candBlock(g0, cwAgg, `${esc(county.full)}　全縣得票`, false, true, { pin: true, party: true, mains: COUNTY_MAIN, prog: cwProg, noBar: true, footExtra: localLine });
+    const countyTop = candBlock(g0, cwAgg, `${esc(county.full)}　全縣得票`, false, true, { pin: true, party: true, mains: COUNTY_MAIN, prog: cwProg, noBar: true });
     const mayorTop = candBlock(mayor.groups.all, agg(mayor, raceStations(mayor)), `${esc(mayor.full)}　全市得票`, false, true, { pin: race.key !== "mayor", party: true });
     $("#overviewRoot").innerHTML = `<div class="ov">${countyTop}${mayorTop}${main}${stTable}${tools}</div>`;
   }
