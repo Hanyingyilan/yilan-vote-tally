@@ -5,6 +5,9 @@ window.TALLY_CONFIG = {
   title: "宜蘭市開票統計",
   electionDate: "2026-11-28",
 
+  // 第一次送出時要不要請填表人輸入名字。false＝不問（只有幾個人在打票數，不用分是誰）。
+  askName: false,
+
   // Google Apps Script 網頁應用程式網址（結尾是 /exec）。留空代表只存在各人的瀏覽器。
   // 設定方式見 README.md 的「串接 Google 試算表」。
   // 也可以不寫在這裡，讓每位填表人在網站右上角「設定」自己貼上。
