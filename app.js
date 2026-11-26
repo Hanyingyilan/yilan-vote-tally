@@ -703,7 +703,8 @@
     return [...g.cands].sort((x, y) => (votes[y.no] || 0) - (votes[x.no] || 0) || x.no - y.no);
   }
   // 一份候選人得票：標題＋完成進度＋各候選人票數長條。a = agg 的結果
-  function candBlock(g, a, title, compact = false) {
+  // hero：統計頁最上面那一塊（市長／縣長／縣議員的全市得票）。電腦版會橫排、放到最大。
+  function candBlock(g, a, title, compact = false, hero = false) {
     const list = sortedCands(g, a.votes);
     const max = Math.max(1, ...list.map((c) => a.votes[c.no] || 0));
     const hasVotes = a.valid > 0;
@@ -724,7 +725,8 @@
     const prog = `<p class="res-prog"><b>${a.done}</b> / ${a.n} 所完成${a.counting ? `<span>開票中 ${a.counting}</span>` : ""}</p>`;
     const bar = `<div class="bar" aria-hidden="true"><i style="width:${a.n ? (a.done / a.n) * 100 : 0}%"></i></div>`;
     const foot = compact ? "" : `<p class="res-foot">有效票 <b>${fmt(a.valid)}</b>　無效票 <b>${fmt(a.invalid)}</b>${g.seats > 1 ? `<span>紅色是目前排在前 ${g.seats} 名（應選 ${g.seats} 席）</span>` : ""}</p>`;
-    return `<section class="card result ${compact ? "compact" : ""}"><div class="res-head"><h2>${title}</h2>${prog}</div>${compact ? "" : bar}${rows || `<p class="note">沒有登記候選人</p>`}${foot}</section>`;
+    const body = rows ? `<div class="cand-list${list.length > 6 ? " many" : ""}" style="--n:${list.length}">${rows}</div>` : `<p class="note">沒有登記候選人</p>`;
+    return `<section class="card result ${compact ? "compact" : ""}${hero ? "hero" : ""}"><div class="res-head"><h2>${title}</h2>${prog}</div>${compact ? "" : bar}${body}${foot}</section>`;
   }
   function voteCells(g, a) {
     return g.cands.map((c) => `<td>${fmt(a.votes[c.no] || 0)}</td>`).join("") + `<td>${fmt(a.invalid)}</td><td>${fmt(a.valid)}</td><td>${fmt(a.total)}</td>`;
@@ -793,8 +795,9 @@
       }).join("");
       const villTable = `<section class="card"><h2>各${L.unit}</h2><div class="tbl-wrap"><table>
         <thead><tr><th>${L.unit}</th><th>完成</th>${headCells(g)}</tr></thead><tbody>${villRows}</tbody></table></div></section>`;
-      // 候選人得票放在最上面，其次才是進度與各項統計
-      main = `<div class="ov-grid"><div class="stack">${candBlock(g, all, race.key === "council" ? `宜蘭縣議員　${esc(councilArea)}${seatTag(race, g)}` : `${esc(race.full)}　${L.whole}得票`)}${flagCard}${compare}</div><div class="stack">${distTable}${villTable}</div></div>`;
+      // 最上面一整排是候選人得票（電腦版橫排、最大），接著是要確認的所，再來才是各區、各里（村）的表
+      const title = race.key === "council" ? `宜蘭縣議員　${esc(councilArea)}${seatTag(race, g)}` : `${esc(race.full)}　${L.whole}得票`;
+      main = `${candBlock(g, all, title, false, true)}${flagCard}<div class="ov-grid"><div class="stack">${compare}${distTable}</div><div class="stack">${villTable}</div></div>`;
     } else {
       const line = `<p class="sumline"><b>${esc(race.full)}${race.key === "rep" ? `<span class="seats">（共應選 ${districtIds.reduce((n, d) => n + race.groups[String(d)].seats, 0)} 席）</span>` : ""}</b><span><b>${all.done}</b> / ${all.n} 所完成</span><span>有效票 <b>${fmt(all.valid)}</b></span><span>無效票 <b>${fmt(all.invalid)}</b></span></p>`;
       let blocks;
