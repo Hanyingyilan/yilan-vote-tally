@@ -32,7 +32,11 @@ var STATUS_LABEL = { pending: '未開票', counting: '開票中', done: '已完�
 var STATUS_CODE = { '未開票': 'pending', '開票中': 'counting', '已完成': 'done' };
 var MAX_ROWS = 10000;
 // 每次改這份程式就把版次往上加。試算表「開票工具」選單最下面會顯示，用來確認貼上去的是不是最新的。
-var VERSION = '宜蘭市 2026-11-12 第 1 版';
+var VERSION = '宜蘭市 2026-11-26 第 2 版（不用密碼）';
+// 開放模式：true ＝ 不用任何密碼就能送票數。任何拿到網站網址的人都能填、都能改，被改掉只能靠「修改記錄」查。
+// 要恢復密碼保護：改成 false，存檔，再用「管理部署作業 → 新版本」部署一次。
+var OPEN_WRITE = true;
+var senderTag_ = '（共用密碼）'; // 「修改記錄」裡，沒有名單名字的送出者後面加的說明
 var ROSTER = '回報員';
 var ROSTER_HEADER = ['名字', '密碼', '停用（打勾＝不能再送）', '專屬連結（傳給本人，點一下就能回報）'];
 var ROSTER_SEC = 30;     // 名單快取秒數（在名單分頁改東西會立刻清掉快取）
@@ -60,7 +64,8 @@ function doGet(e) {
 
 // 每次讀取都附上「這裡現在幾點」（now），手機用它校正自己不準的時鐘。加在快取之後，所以一定是當下的時間。
 function withNow_(text) {
-  return '{"now":' + Date.now() + ',"ver":' + JSON.stringify(VERSION) + ',' + text.slice(1); // ver：從外面也看得出線上跑的是哪一版
+  // ver：從外面也看得出線上跑的是哪一版。open：告訴網站「現在不用密碼」，網站就不會再問密碼和名字
+  return '{"now":' + Date.now() + ',"ver":' + JSON.stringify(VERSION) + (OPEN_WRITE ? ',"open":true' : '') + ',' + text.slice(1);
 }
 
 // 「時間較新的蓋掉舊的」是照每一筆的 updatedAt，而那是手機自己的時鐘。
@@ -101,14 +106,23 @@ function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
     var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
-    if (!token) return json_({ ok: false, error: '尚未在「指令碼屬性」設定 TOKEN' });
-    var who = auth_(body.token, token);
-    if (!who) return json_({ ok: false, error: '同步密碼不正確' });
-    if (who.off) return json_({ ok: false, error: '這組密碼已停用，請聯絡負責人' });
+    var who;
+    if (OPEN_WRITE) {
+      // 開放模式：沒帶密碼、密碼不對、被停用的，一律當成「沒有密碼的人」放行。
+      // 帶了對的密碼仍然認得出是誰（名單上的名字、管理員），名字照舊記進填表人。
+      who = token ? auth_(body.token, token) : null;
+      if (!who || who.off) who = { open: true };
+    } else {
+      if (!token) return json_({ ok: false, error: '尚未在「指令碼屬性」設定 TOKEN' });
+      who = auth_(body.token, token);
+      if (!who) return json_({ ok: false, error: '同步密碼不正確' });
+      if (who.off) return json_({ ok: false, error: '這組密碼已停用，請聯絡負責人' });
+    }
+    senderTag_ = who.open ? '（沒有密碼）' : '（共用密碼）';
 
-    // 帶密碼的讀取：含填表人名字。只讀不寫，所以不用排隊
+    // 帶密碼的讀取：含填表人名字。只讀不寫，所以不用排隊。沒有密碼的人讀不到名字（和公開讀取一樣）
     if (body.action === 'read') {
-      var text = withNow_(readCached_(true));
+      var text = withNow_(readCached_(!who.open));
       // 用回報員密碼登入的，順便告訴手機「你是誰」，手機就不用再問名字
       return textOut_(who.name ? '{"who":' + JSON.stringify(who.name) + ',' + text.slice(1) : text);
     }
@@ -352,7 +366,7 @@ function logChanges_(sh, idx, changed, sender) {
     var before = describe_(first[COL.status], oldPairs, oldInvalid);
     var after = describe_(STATUS_LABEL[r.status] || '未開票', newPairs, Number(r.invalid) || 0);
     if (before === after) return; // 數字和狀態都一樣（例如重送），不用記
-    out.push([now, sender || ((r.by || '沒填名字') + '（共用密碼）'), r.id, r.venue, r.raceLabel, before, after,
+    out.push([now, sender || ((r.by || '沒填名字') + senderTag_), r.id, r.venue, r.raceLabel, before, after,
       first[COL.by] || '', first[COL.time] || '']);
   });
   if (!out.length) return;

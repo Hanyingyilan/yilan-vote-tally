@@ -156,6 +156,8 @@
   let state = { records: {}, dirty: {}, mine: {}, settings: { url: "", token: "", by: "", race: "mayor", lastId: "" }, lastSync: 0 };
   // 填表人的名字不公開：只有輸入過密碼的裝置才顯示
   const nameOf = (r) => (state.settings.token && r?.by ? r.by : "");
+  // 這台裝置能不能送票數：有密碼，或後端是「不用密碼」的開放模式
+  const canSend = () => !!state.settings.token || !!state.settings.open;
   const rk = (id, race) => `${id}|${race}`;
   const getRec = (id, race) => state.records[rk(id, race)];
   function loadState() {
@@ -594,7 +596,7 @@
       const lines = todo.map(([key, d]) => `<li><span>${esc(raceByKey[key].label)}</span>${d.empty ? `<b class="to-pending">清空，變回未開票</b>` : `<b>${fmt(d.total)} 票</b>`}</li>`).join("");
       const warnHtml = warns.length ? `<ul class="ask-warn">${warns.map((w) => `<li>${w}</li>`).join("")}</ul>` : "";
       // 這支手機還沒填過名字：在同一個視窗請他填（只問這一次，之後會記住）
-      const needName = !by;
+      const needName = !by && !state.settings.open; // 不用密碼的模式連名字也不問
       const ans = await ask({
         title: "是這一所嗎？",
         html: `${where}<ul class="ask-list">${lines}</ul>${warnHtml}`,
@@ -655,7 +657,7 @@
     if (none) { show("info", "沒有新的修改。"); return; }
     const names = keys.map((k) => raceByKey[k].label).join("、");
     const pend = keys.filter((k) => state.dirty[rk(ui.editId, k)]);
-    const needToken = !!syncUrl() && !state.settings.token;
+    const needToken = !!syncUrl() && !canSend();
     if (!syncUrl()) show("warn", `⚠ <b>還沒送出！</b>這支手機沒有連到雲端。`);
     else if (pend.length && needToken) show("warn", `⚠ <b>還沒送出！</b>請輸入同步密碼，票數才會送出。`, btn("輸入同步密碼"));
     else if (pend.length && (ui.tokenBad || /密碼/.test(ui.error))) show("warn", `⚠ <b>還沒送出！</b>密碼不對或已停用，請聯絡負責人。票數還在手機裡，不用重填。`, btn("重新輸入同步密碼"));
@@ -872,7 +874,7 @@
     const ck = calc(cw);
     const cwAgg = { n: 0, done: 0, counting: 0, votes: cwFilled ? cw.votes || {} : {}, invalid: cwFilled ? ck.invalid : 0, valid: cwFilled ? ck.valid : 0, total: cwFilled ? ck.total : 0 };
     const cwProg = `<p class="res-prog">${cwFilled ? `${cw.status === "done" ? "已開完" : "開票中"}　${hhmm(cw.updatedAt)} 更新` : "還沒輸入全縣票數"}${
-      state.settings.token ? `<button type="button" class="linkbtn" data-act="countywide">輸入全縣票數</button>` : ""}</p>`;
+      canSend() ? `<button type="button" class="linkbtn" data-act="countywide">輸入全縣票數</button>` : ""}</p>`;
     const g0 = county.groups.all;
     const countyTop = candBlock(g0, cwAgg, `${esc(county.full)}　全縣得票`, false, true, { pin: true, party: true, mains: COUNTY_MAIN, prog: cwProg, noBar: true });
     const mayorTop = candBlock(mayor.groups.all, agg(mayor, raceStations(mayor)), `${esc(mayor.full)}　全市得票`, false, true, { pin: race.key !== "mayor", party: true });
@@ -968,6 +970,8 @@
   async function timed(run) {
     const t0 = Date.now();
     const res = await run();
+    // open：後端說「現在不用密碼就能送」。記在這台裝置上，下次打開不用等第一次讀取就知道
+    if (res && res.ok) state.settings.open = !!res.open;
     if (res && res.ok && Number(res.now)) {
       const d = Number(res.now) - (t0 + Date.now()) / 2;
       state.settings.skew = Math.abs(d) > CLOCK_SLACK ? Math.round(d) : 0;
@@ -995,9 +999,9 @@
     try {
       const keys = pendingKeys();
       if (keys.length) {
-        if (!state.settings.token) throw new Error("NO_TOKEN");
+        if (!canSend()) throw new Error("NO_TOKEN");
         const sent = keys.map((k) => [k, state.records[k].updatedAt]);
-        const res = await post({ action: "upsertMany", token: state.settings.token, sentAt: nowMs(), records: keys.map((k) => wire(state.records[k])) });
+        const res = await post({ action: "upsertMany", token: state.settings.token || "", sentAt: nowMs(), records: keys.map((k) => wire(state.records[k])) });
         if (!res.ok) throw new Error(res.error || "上傳失敗");
         for (const [k, at] of sent) if (state.records[k].updatedAt === at) delete state.dirty[k];
         // 票已經送到了：馬上顯示「已送出」，不用等下面那次讀取（讀取只是順便抓別人的最新資料）
@@ -1022,7 +1026,7 @@
   function renderChip() {
     const chip = $("#syncChip");
     const pending = pendingKeys().length;
-    const noToken = !!syncUrl() && !state.settings.token;
+    const noToken = !!syncUrl() && !canSend();
     let text, st = "";
     if (!syncUrl()) { text = pending ? `⚠ ${pending} 筆還沒送出` : "未連雲端"; st = "warn"; }
     else if (ui.syncing && (pending || !state.lastSync)) { text = pending ? "傳送中…" : "更新中…"; st = "busy"; } // 背景定時更新時不閃爍
@@ -1139,7 +1143,7 @@
       if (act === "askYes") return answerAsk(true, t.dataset.val);
       if (act === "askNo") return answerAsk(false);
       if (act === "save") {
-        saveEditor().then((ok) => { if (ok && ui.savedAt && !ui.savedAt.none && syncUrl() && !state.settings.token) openPasswordPrompt(); });
+        saveEditor().then((ok) => { if (ok && ui.savedAt && !ui.savedAt.none && syncUrl() && !canSend()) openPasswordPrompt(); });
         return;
       }
       if (act === "askPassword") return openPasswordPrompt();
