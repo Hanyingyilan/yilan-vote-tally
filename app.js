@@ -751,6 +751,8 @@
     }).join("")}</ul></section>` : "";
 
     let main = "";
+    // 縣長和市民代表選舉區無關：縣長那一頁不放「各選舉區」的表，各里和明細也不用選舉區分組
+    const noDist = race.key === "county";
     if (race.scope === "all") {
       const g = race.groups.all;
       const distRows = districtIds.map((d) => {
@@ -759,7 +761,7 @@
         const a = agg(race, l);
         return `<tr><td>第${d}選舉區</td><td>${a.done}/${a.n}</td>${voteCells(g, a)}</tr>`;
       }).join("");
-      const distTable = `<section class="card"><h2>各市民代表選舉區<small>各區內投開票所加總</small></h2><div class="tbl-wrap"><table>
+      const distTable = noDist ? "" : `<section class="card"><h2>各市民代表選舉區<small>各區內投開票所加總</small></h2><div class="tbl-wrap"><table>
         <thead><tr><th>選舉區</th><th>完成</th>${headCells(g)}</tr></thead><tbody>${distRows}
         <tr class="sum"><td>全市</td><td>${all.done}/${all.n}</td>${voteCells(g, all)}</tr></tbody></table></div></section>`;
       const villRows = districtIds.map((d) => {
@@ -769,13 +771,13 @@
           const a = agg(race, l);
           return `<tr><td>${esc(v)}</td><td>${a.done}/${a.n}</td>${voteCells(g, a)}</tr>`;
         }).join("");
-        return rows ? `<tr class="grp"><td colspan="${g.cands.length + 5}">第${d}選舉區</td></tr>${rows}` : "";
+        return rows && !noDist ? `<tr class="grp"><td colspan="${g.cands.length + 5}">第${d}選舉區</td></tr>${rows}` : rows;
       }).join("");
       const villTable = `<section class="card"><h2>各里</h2><div class="tbl-wrap"><table>
         <thead><tr><th>里</th><th>完成</th>${headCells(g)}</tr></thead><tbody>${villRows}</tbody></table></div></section>`;
       // 最上面一整排是候選人得票（電腦版橫排、最大），接著是要確認的所，再來才是各區、各里的表
       const title = race.key === "council" ? `宜蘭縣議員　${esc(councilArea)}${seatTag(race, g)}` : `${esc(race.full)}　全市得票`;
-      main = `${candBlock(g, all, title, false, true)}${flagCard}<div class="ov-grid"><div class="stack">${compare}${distTable}</div><div class="stack">${villTable}</div></div>`;
+      main = `${candBlock(g, all, title, false, true)}${flagCard}<div class="ov-grid">${compare || distTable ? `<div class="stack">${compare}${distTable}</div>` : ""}<div class="stack">${villTable}</div></div>`;
     } else {
       const line = `<p class="sumline"><b>${esc(race.full)}${race.key === "rep" ? `<span class="seats">（共應選 ${districtIds.reduce((n, d) => n + race.groups[String(d)].seats, 0)} 席）</span>` : ""}</b><span><b>${all.done}</b> / ${all.n} 所完成</span><span>有效票 <b>${fmt(all.valid)}</b></span><span>無效票 <b>${fmt(all.invalid)}</b></span></p>`;
       let blocks;
@@ -811,7 +813,7 @@
         return `<tr class="${fl ? "flag" : ""}"><td>${s.id} ${esc(s.name)}<br><small class="muted">${esc(s.village)} 鄰${esc(s.neighbors)}</small>${fl ? `<span class="flagtag">⚠ ${fl.map(esc).join("；")}</span>` : ""}</td><td><span class="badge" data-s="${st}">${STATUS[st]}</span></td>
           <td class="left wrap">${detail}</td><td>${st === "pending" ? "" : fmt(k.invalid)}</td><td>${st === "pending" ? "" : fmt(k.valid)}</td><td>${st === "pending" ? "" : fmt(k.total)}</td><td>${who}</td></tr>`;
       }).join("");
-      return rows ? `<tr class="grp"><td colspan="7">第${d}選舉區${race.key === "rep" ? seatTag(race, race.groups[String(d)]) : ""}</td></tr>${rows}` : "";
+      return rows && !noDist ? `<tr class="grp"><td colspan="7">第${d}選舉區${race.key === "rep" ? seatTag(race, race.groups[String(d)]) : ""}</td></tr>${rows}` : rows;
     }).join("");
     const stTable = `<details class="card"><summary>${esc(race.label)}・全部投開票所明細（${list.length} 所）</summary><div class="tbl-wrap"><table>
       <thead><tr><th>投開票所</th><th>狀態</th><th class="left">各候選人得票</th><th>無效票</th><th>有效票</th><th>投票數</th><th>${state.settings.token ? "填表人／時間" : "更新時間"}</th></tr></thead><tbody>${stRows}</tbody></table></div></details>`;
@@ -823,7 +825,10 @@
       <button type="button" class="btn" data-act="print">列印 / 存成 PDF</button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </div></section>`;
-    $("#overviewRoot").innerHTML = `<div class="ov">${main}${stTable}${tools}</div>`;
+    // 電腦版：不管切到哪一種選舉，最上面都固定放市長的全市得票（切到市長時它本來就在最上面，不重複放）
+    const top = raceByKey.mayor;
+    const pinned = top && race.key !== top.key ? `<div class="pin-top">${candBlock(top.groups.all, agg(top, raceStations(top)), `${esc(top.full)}　全市得票`, false, true)}</div>` : "";
+    $("#overviewRoot").innerHTML = `<div class="ov">${pinned}${main}${stTable}${tools}</div>`;
   }
 
   /* ---------- 匯出／匯入 ---------- */

@@ -249,6 +249,7 @@ dialog#pw, dialog#ask { width: 92vw; max-width: 460px; height: auto; height: fit
 
 /* ---------- 統計總覽 ---------- */
 .ov { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 16px; }
+.pin-top { display: none; } /* 固定在最上面的市長得票：只有電腦版顯示，手機版會把要看的那一種選舉擠到很下面 */
 .stack, .ov-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
 .card { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
 .card > h2 { font-size: 22px; font-weight: 800; margin-bottom: 10px; }
@@ -375,6 +376,7 @@ tr.flag td, tr.flag td:first-child { background: var(--accent-soft); }
   .ed { max-height: 90vh; }
   .result:not(.compact) .cand-row .n { font-size: 38px; }
   .result:not(.compact) .res-head h2 { font-size: 28px; }
+  .pin-top { display: block; min-width: 0; }
   /* 統計頁最上面的全市得票：像計票板一樣橫排，每位候選人一欄，票數是整頁最大的字 */
   .result.hero { padding: 22px 28px 16px; }
   .result.hero .res-head h2 { font-size: 34px; }
