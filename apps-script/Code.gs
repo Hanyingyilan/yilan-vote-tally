@@ -32,7 +32,7 @@ var STATUS_LABEL = { pending: '未開票', counting: '開票中', done: '已完�
 var STATUS_CODE = { '未開票': 'pending', '開票中': 'counting', '已完成': 'done' };
 var MAX_ROWS = 10000;
 // 每次改這份程式就把版次往上加。試算表「開票工具」選單最下面會顯示，用來確認貼上去的是不是最新的。
-var VERSION = '宜蘭市 2026-11-26 第 2 版（不用密碼）';
+var VERSION = '宜蘭市 2026-11-26 第 3 版（不用密碼）';
 // 開放模式：true ＝ 不用任何密碼就能送票數。任何拿到網站網址的人都能填、都能改，被改掉只能靠「修改記錄」查。
 // 要恢復密碼保護：改成 false，存檔，再用「管理部署作業 → 新版本」部署一次。
 var OPEN_WRITE = true;
@@ -140,7 +140,8 @@ function doPost(e) {
       return json_({ ok: true, count: count });
     }
     if (body.action === 'init') {
-      if (!who.admin) return json_({ ok: false, error: '初始化要用管理員密碼' });
+      // 初始化只會補上缺少的列、重做「彙總」，不會動到已經填的票數，所以開放模式下不用密碼也可以按
+      if (!who.admin && !who.open) return json_({ ok: false, error: '初始化要用管理員密碼' });
       write_(body.records || [], true);
       buildSummary_(body.summary || []);
       cacheClear_();

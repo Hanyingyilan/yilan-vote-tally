@@ -1094,7 +1094,7 @@
         const res = await getAll();
         stMsg(res.ok ? `連線成功，雲端目前有 ${(res.records || []).filter((r) => r.updatedAt && r.status !== "pending").length} 筆已填資料。` : res.error || "連線失敗", res.ok ? "ok" : "err");
       } else if (act === "stInit") {
-        if (!cur.token) return stMsg("初始化需要同步密碼", "err");
+        if (!cur.token && !state.settings.open) return stMsg("初始化需要同步密碼", "err");
         // 雲端已有票數時先講清楚：初始化只補缺少的列，不會清空
         const have = await getAll();
         if (!have.ok) return stMsg(have.error || "連線失敗", "err");
@@ -1110,8 +1110,10 @@
         for (const s of stations) for (const race of racesOf(s)) {
           records.push(wire({ id: s.id, race: race.key, votes: {}, invalid: 0, electors: null, status: "pending", by: "", updatedAt: 0 }));
         }
-        const res = await post({ action: "init", token: cur.token, records, summary: RACES.flatMap((r) => Object.entries(r.groups).map(([key, g]) => ({ race: r.full, group: g.label, seats: g.seats,
-          scopeId: r.scope === "all" ? "ALL" : r.scope === "district" ? `D${key}` : `V:${key}`, cands: g.cands.map((c) => ({ no: c.no, name: c.name, party: c.party })) }))) });
+        // 縣長全縣合計那一筆也先建好，試算表一打開就看得到那幾列
+        records.push(wire({ id: "COUNTYWIDE", race: PINNED_ONLY, votes: {}, invalid: 0, electors: null, status: "pending", by: "", updatedAt: 0 }));
+        const res = await post({ action: "init", token: cur.token || "", records, summary: RACES.flatMap((r) => Object.entries(r.groups).map(([key, g]) => ({ race: r.full, group: g.label, seats: g.seats,
+          scopeId: r.key === PINNED_ONLY ? "COUNTYWIDE" : r.scope === "all" ? "ALL" : r.scope === "district" ? `D${key}` : `V:${key}`, cands: g.cands.map((c) => ({ no: c.no, name: c.name, party: c.party })) }))) });
         stMsg(res.ok ? `已建立 ${res.rows} 列明細與「彙總」分頁。` : res.error || "初始化失敗", res.ok ? "ok" : "err");
       }
     } catch (e) {
