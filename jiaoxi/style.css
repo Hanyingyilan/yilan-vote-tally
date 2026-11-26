@@ -360,6 +360,12 @@ tr.flag td, tr.flag td:first-child { background: var(--accent-soft); }
 
 /* ---------- 平板／電腦 ---------- */
 @media (min-width: 600px) { .brand p { display: block; } }
+/* 政黨顏色（只在最上面固定的兩排）：號次圓圈、黨名、長條。票數本身不變色，領先的仍是紅色。 */
+.cand-row[data-party="dpp"] { --pc: #1a7f37; }
+.cand-row[data-party="kmt"] { --pc: #1d5fbf; }
+.cand-row[data-party] .f-no { background: var(--pc); }
+.cand-row[data-party] .who small { color: var(--pc); font-weight: 700; }
+.cand-row[data-party] .track i, .cand-row[data-party].lead .track i { background: var(--pc); }
 /* 縣長那一塊：主要兩位照一般大小，其他人小字（手機排在下面，電腦排在右邊） */
 .minor { border-top: 1px solid var(--line); padding: 8px 0 2px; }
 .res-prog .linkbtn { margin-left: 12px; }

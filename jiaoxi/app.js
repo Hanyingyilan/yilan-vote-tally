@@ -161,6 +161,8 @@
     return `(${n})`;
   };
   const partyTag = (c) => (c.party ? `<small>${esc(c.party)}</small>` : "");
+  // 最上面固定的兩排（縣長、市長／鄉鎮長）用一點政黨顏色幫助辨認：號次圓圈、黨名、長條。其他地方維持原樣。
+  const PARTY_COLOR = { "民主進步黨": "dpp", "中國國民黨": "kmt" };
 
   /* ---------- 狀態（localStorage） ---------- */
   // mine：這支手機自己送出的紀錄（key → 當時的更新時間），用來分辨「這筆是不是別人填的」
@@ -712,6 +714,7 @@
   // 一份候選人得票：標題＋完成進度＋各候選人票數長條。a = agg 的結果
   // hero：統計頁最上面那一塊（市長／縣長／縣議員的全市得票）。電腦版會橫排、放到最大。
   // opt.pin：固定在每個分類最上面的那一塊（手機上會縮小一點）。opt.mains：只把這幾位放大，其他人小字排在旁邊。
+  // opt.party：照政黨上一點顏色（只用在最上面固定的兩排）。
   // opt.prog：右上角那一行改放別的說明（不是「幾所完成」）。opt.noBar：不畫完成進度條。opt.footExtra：最下面多一行。
   function candBlock(g, a, title, compact = false, hero = false, opt = {}) {
     const list = sortedCands(g, a.votes);
@@ -726,7 +729,7 @@
       const tied = boundaryTie && v === topVal(g.seats - 1);
       const inSeat = hasVotes && v > 0 && i < g.seats && !tied;
       const tag = solo ? `<span class="tie-tag">同額競選</span>` : inSeat && g.seats === 1 ? `<span class="lead-tag">領先</span>` : tied ? `<span class="tie-tag">同票</span>` : "";
-      return `<div class="cand-row ${inSeat ? "lead" : ""}"><span class="f-no">${esc(c.no)}</span>
+      return `<div class="cand-row ${inSeat ? "lead" : ""}"${opt.party && PARTY_COLOR[c.party] ? ` data-party="${PARTY_COLOR[c.party]}"` : ""}><span class="f-no">${esc(c.no)}</span>
         <span class="who">${esc(c.name)}${partyTag(c)}${tag}</span>
         <span class="n">${fmt(v)}</span><span class="p">${pct(v, a.valid)}</span>
         ${compact ? "" : `<span class="track" aria-hidden="true"><i style="width:${(v / max) * 100}%"></i></span>`}</div>`;
@@ -874,8 +877,8 @@
     const local = agg(county, raceStations(county));
     const g0 = county.groups.all;
     const localLine = `<span>其中${esc(townName)}各投開票所回報加總（${local.done}/${local.n} 所完成）：${g0.cands.filter((c) => COUNTY_MAIN.includes(c.name)).map((c) => `${esc(c.name)} <b>${fmt(local.votes[c.no] || 0)}</b>`).join("　")}</span>`;
-    const countyTop = candBlock(g0, cwAgg, `${esc(county.full)}　全縣得票`, false, true, { pin: true, mains: COUNTY_MAIN, prog: cwProg, noBar: true, footExtra: localLine });
-    const mayorTop = candBlock(mayor.groups.all, agg(mayor, raceStations(mayor)), `${esc(mayor.full)}　${L.whole}得票`, false, true, { pin: race.key !== "mayor" });
+    const countyTop = candBlock(g0, cwAgg, `${esc(county.full)}　全縣得票`, false, true, { pin: true, party: true, mains: COUNTY_MAIN, prog: cwProg, noBar: true, footExtra: localLine });
+    const mayorTop = candBlock(mayor.groups.all, agg(mayor, raceStations(mayor)), `${esc(mayor.full)}　${L.whole}得票`, false, true, { pin: race.key !== "mayor", party: true });
     $("#overviewRoot").innerHTML = `<div class="ov">${countyTop}${mayorTop}${main}${stTable}${tools}</div>`;
   }
 
