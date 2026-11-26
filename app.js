@@ -26,7 +26,8 @@
       groups: Object.fromEntries(districtIds.map((d) => [String(d), { label: `第${d}選舉區`, seats: DATA.districts[d].seats, cands: C.rep[d] || [] }])) },
     { key: "chief", label: "里長", full: "宜蘭市里長", scope: "village", applies: () => true, groupOf: (s) => s.village,
       groups: Object.fromEntries(Object.entries(C.chief).map(([v, cs]) => [v, { label: v, seats: 1, cands: cs }])) },
-    { key: "county", label: "縣長", full: "宜蘭縣長", scope: "all", applies: () => true, groupOf: () => "all", groups: single("宜蘭縣長", 1, C.county) },
+    // 縣長不在各投開票所登錄（applies 一律 false）：只有一筆「全縣合計」（COUNTYWIDE），由負責人單獨輸入
+    { key: "county", label: "縣長", full: "宜蘭縣長", scope: "all", applies: () => false, groupOf: () => "all", groups: single("宜蘭縣長", 1, C.county) },
     { key: "council", label: "縣議員", full: `宜蘭縣議員（${C.council.area}）`, scope: "all", applies: () => true, groupOf: () => "all", groups: single(C.council.area, C.council.seats, C.council.cands) },
   ];
   // 這次不登錄的選舉（負責人決定只登錄市長和縣長）。要恢復，把 key 從這裡拿掉就好，其他都不用改；
@@ -53,7 +54,7 @@
   ];
   for (const sc of SCOPES) byId[sc.id] = sc;
   // 里長只有「里」層級有合計；市民代表沒有「全市」合計；其餘選舉三種層級都有
-  const scopeHas = (sc, r) => (sc.kind === "county" ? r.key === PINNED_ONLY : r.key === "chief" ? sc.kind === "village" : r.key === "rep" ? sc.kind !== "all" : true);
+  const scopeHas = (sc, r) => (sc.kind === "county" || r.key === PINNED_ONLY ? sc.kind === "county" && r.key === PINNED_ONLY : r.key === "chief" ? sc.kind === "village" : r.key === "rep" ? sc.kind !== "all" : true);
   const racesOf = (s) => (s.kind ? RACES.filter((r) => scopeHas(s, r)) : RACES.filter((r) => r.applies(s) && groupOf(r, s)));
   const scopeStations = (sc) => (sc.kind === "county" ? [] : sc.kind === "all" ? stations : sc.kind === "district" ? stationsOf(sc.district) : stations.filter((s) => s.village === sc.village));
 
@@ -301,7 +302,7 @@
     return out;
   }
   function renderRaceBar() {
-    const shown = RACES.filter((r) => !(ui.tab === "overview" && r.key === PINNED_ONLY));
+    const shown = RACES.filter((r) => r.key !== PINNED_ONLY); // 縣長不是一個可以切換的分類（填寫頁、統計頁都一樣）
     $("#raceBar").hidden = shown.length < 2; // 只剩一種選舉可切換時，整排分類不用顯示
     $("#raceBar").innerHTML = shown.map((r) => {
       const a = agg(r, stations);
@@ -388,7 +389,19 @@
     const hint = `<p class="hint"><b>合計</b>是整個範圍加起來的票數（例如某個里、某個選舉區或全市）。在投開票所現場回報的人，只要到「各投開票所」填就好，<b>不用</b>再填合計；這裡是給拿得到合計數字的人用的，總覽頁會把它和各所加總並排對照。</p>`;
     $("#list").innerHTML = hint + (html.join("") || `<p class="empty">沒有符合的項目</p>`);
   }
+  // 填寫頁最上面那一條：縣長全縣票數目前是多少，和單獨輸入的按鈕
+  function renderCountyQuick() {
+    const el = $("#countyQuick");
+    if (!el) return;
+    const cw = getRec("COUNTYWIDE", PINNED_ONLY);
+    const g = raceByKey[PINNED_ONLY].groups.all;
+    const now = cw && cw.status !== "pending"
+      ? g.cands.filter((c) => COUNTY_MAIN.includes(c.name)).map((c) => `${esc(c.name)} <b>${fmt(cw.votes?.[c.no] || 0)}</b>`).join("　") + `　<small>${hhmm(cw.updatedAt)} 更新</small>`
+      : "還沒輸入";
+    el.innerHTML = `<p class="hint county-quick"><span><b>縣長（全縣得票）</b>　${now}</span><button type="button" class="btn" data-act="countywide">輸入縣長全縣票數</button></p>`;
+  }
   function renderList() {
+    renderCountyQuick();
     renderMode();
     if (ui.mode === "total") return renderTotals();
     renderSeg();
@@ -1104,7 +1117,7 @@
 
   /* ---------- 事件 ---------- */
   function renderAll() {
-    if (ui.tab === "overview" && ui.race === PINNED_ONLY) ui.race = "mayor"; // 統計頁沒有「縣長」這個分類
+    if (ui.race === PINNED_ONLY) ui.race = "mayor"; // 沒有「縣長」這個分類
     renderRaceBar();
     if (ui.tab === "overview") renderOverview(); else renderList();
     renderChip();
@@ -1130,7 +1143,7 @@
         return;
       }
       if (act === "askPassword") return openPasswordPrompt();
-      if (act === "countywide") { ui.mode = "total"; ui.race = PINNED_ONLY; setTab("entry"); return openEditor("COUNTYWIDE", PINNED_ONLY); }
+      if (act === "countywide") return openEditor("COUNTYWIDE", PINNED_ONLY); // 縣長全縣票數：單獨一張表單，不用切換頁面
       if (act === "fix") { ui.mode = "station"; setTab("entry"); return openEditor(t.dataset.id, ui.race); }
       if (act === "pwGo") return void submitPassword();
       if (act === "pwLater") return $("#pw").close();
