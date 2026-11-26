@@ -249,7 +249,6 @@ dialog#pw, dialog#ask { width: 92vw; max-width: 460px; height: auto; height: fit
 
 /* ---------- 統計總覽 ---------- */
 .ov { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 16px; }
-.pin-top { display: none; } /* 固定在最上面的市長得票：只有電腦版顯示，手機版會把要看的那一種選舉擠到很下面 */
 .stack, .ov-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
 .card { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
 .card > h2 { font-size: 22px; font-weight: 800; margin-bottom: 10px; }
@@ -349,6 +348,24 @@ tr.flag td, tr.flag td:first-child { background: var(--accent-soft); }
 
 /* ---------- 平板／電腦 ---------- */
 @media (min-width: 600px) { .brand p { display: block; } }
+/* 縣長那一塊：主要兩位照一般大小，其他人小字（手機排在下面，電腦排在右邊） */
+.minor { border-top: 1px solid var(--line); padding: 8px 0 2px; }
+.res-prog .linkbtn { margin-left: 12px; }
+.minor-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto 58px; gap: 0 8px; align-items: center; padding: 3px 0; color: var(--muted); }
+.minor-row .f-no { width: 24px; height: 24px; font-size: 14px; background: var(--line-strong); }
+.minor-row .who { font-size: 17px; font-weight: 700; color: var(--ink); }
+.minor-row .n { font-size: 19px; font-weight: 800; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+.minor-row .p { font-size: 15px; text-align: right; font-variant-numeric: tabular-nums; }
+/* 手機：固定在最上面的那兩塊縮小一點，下面才看得到自己切過去的那一種選舉 */
+@media (max-width: 899px) {
+  .result.pin { padding-top: 12px; padding-bottom: 8px; }
+  .result.pin .res-head h2 { font-size: 21px; }
+  .result.pin .res-prog, .result.pin .res-prog b { font-size: 17px; }
+  .result.pin .cand-row { padding: 7px 0; }
+  .result.pin .cand-row .who { font-size: 20px; }
+  .result.pin .cand-row .n { font-size: 26px; }
+  .result.pin .cand-row .track, .result.pin .res-foot { display: none; }
+}
 @media (min-width: 900px) {
   :root { --gutter: 28px; }
   body { padding-bottom: 24px; }
@@ -376,7 +393,6 @@ tr.flag td, tr.flag td:first-child { background: var(--accent-soft); }
   .ed { max-height: 90vh; }
   .result:not(.compact) .cand-row .n { font-size: 38px; }
   .result:not(.compact) .res-head h2 { font-size: 28px; }
-  .pin-top { display: block; min-width: 0; }
   /* 統計頁最上面的全市得票：像計票板一樣橫排，每位候選人一欄，票數是整頁最大的字 */
   .result.hero { padding: 22px 28px 16px; }
   .result.hero .res-head h2 { font-size: 34px; }
@@ -396,6 +412,15 @@ tr.flag td, tr.flag td:first-child { background: var(--accent-soft); }
   .result.hero .cand-row .p { grid-column: 1 / -1; margin-top: 6px; text-align: left; font-size: 24px; }
   .result.hero .cand-row .track { grid-column: 1 / -1; grid-row: auto; height: 12px; margin-top: 10px; border-radius: 6px; }
   .result.hero .res-foot { margin-top: 4px; font-size: 20px; }
+  /* 縣長：主要兩位佔左邊四分之三（字比市長小一級），其他人小字排在右邊 */
+  .result.hero .duo { display: grid; grid-template-columns: minmax(0, 3fr) minmax(220px, 1fr); margin-top: 6px; }
+  .result.hero .duo .cand-list { --col: calc((min(100vw, 1280px) - 112px) * 0.75 / var(--n, 2)); margin-top: 0; padding-right: 24px; }
+  .result.hero .duo .cand-row .n { font-size: clamp(30px, calc((var(--col) - 50px) / 5.2), 80px); }
+  .result.hero .duo .minor { display: grid; align-content: center; gap: 6px; border-top: 0; border-left: 1px solid var(--line); padding: 12px 0 8px 24px; }
+  .result.hero .duo .minor-row { grid-template-columns: 28px minmax(0, 1fr) auto 58px; gap: 0 10px; }
+  .result.hero .duo .minor-row .f-no { width: 28px; height: 28px; font-size: 16px; }
+  .result.hero .duo .minor-row .who { font-size: 19px; }
+  .result.hero .duo .minor-row .n { font-size: 22px; }
   /* 候選人很多（例如縣議員）：一排放不下，改成一排五位、字小一號 */
   .result.hero .cand-list.many { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .result.hero .cand-list.many .cand-row { padding: 14px 16px 12px; border-top: 1px solid var(--line); }
