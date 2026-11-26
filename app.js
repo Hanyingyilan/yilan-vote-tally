@@ -20,7 +20,7 @@
   /* ---------- 選舉項目 ---------- */
   // scope: all＝全市一份名單；district＝依市民代表選舉區；village＝依里
   const single = (label, seats, cands) => ({ all: { label, seats, cands } });
-  const RACES = [
+  const ALL_RACES = [
     { key: "mayor", label: "市長", full: "宜蘭市長", scope: "all", applies: () => true, groupOf: () => "all", groups: single("宜蘭市長", 1, C.mayor) },
     { key: "rep", label: "市民代表", full: "宜蘭市民代表", scope: "district", applies: () => true, groupOf: (s) => String(s.district),
       groups: Object.fromEntries(districtIds.map((d) => [String(d), { label: `第${d}選舉區`, seats: DATA.districts[d].seats, cands: C.rep[d] || [] }])) },
@@ -29,6 +29,10 @@
     { key: "county", label: "縣長", full: "宜蘭縣長", scope: "all", applies: () => true, groupOf: () => "all", groups: single("宜蘭縣長", 1, C.county) },
     { key: "council", label: "縣議員", full: `宜蘭縣議員（${C.council.area}）`, scope: "all", applies: () => true, groupOf: () => "all", groups: single(C.council.area, C.council.seats, C.council.cands) },
   ];
+  // 這次不登錄的選舉（負責人決定只登錄市長和縣長）。要恢復，把 key 從這裡拿掉就好，其他都不用改；
+  // 雲端試算表裡這幾種選舉的列還在，只是網站不顯示、不能填。
+  const UNUSED_RACES = ["rep", "chief", "council"];
+  const RACES = ALL_RACES.filter((r) => !UNUSED_RACES.includes(r.key));
   const raceByKey = Object.fromEntries(RACES.map((r) => [r.key, r]));
   // 統計頁每一個分類的最上面都固定放兩塊：市長（全部候選人）和縣長（主要兩位放大，其他人小字）。
   // 縣長既然每頁都看得到，統計頁的分類列就不再放「縣長」。填寫票數那一頁不受影響，五種選舉照舊都能填。
@@ -163,6 +167,8 @@
   // 每一筆票數的時間都用這個，「時間較新的蓋掉舊的」才不會被某支時間不準的手機卡住。
   const CLOCK_SLACK = 30000; // 差不到 30 秒就當作是準的
   function nowMs() { return Date.now() + (Number(state.settings.skew) || 0); }
+  // 還沒送出的紀錄。這台裝置上若留著「已拿掉的選舉」的紀錄：不送、不算在「還沒送出」裡，但也不刪（恢復選舉時還在）
+  const pendingKeys = () => Object.keys(state.dirty).filter((k) => state.records[k] && raceByKey[state.records[k].race]);
   function saveState() {
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
   }
@@ -295,7 +301,9 @@
     return out;
   }
   function renderRaceBar() {
-    $("#raceBar").innerHTML = RACES.filter((r) => !(ui.tab === "overview" && r.key === PINNED_ONLY)).map((r) => {
+    const shown = RACES.filter((r) => !(ui.tab === "overview" && r.key === PINNED_ONLY));
+    $("#raceBar").hidden = shown.length < 2; // 只剩一種選舉可切換時，整排分類不用顯示
+    $("#raceBar").innerHTML = shown.map((r) => {
       const a = agg(r, stations);
       const fl = Object.keys(flagsFor(r)).length;
       return `<button type="button" data-race="${r.key}" aria-pressed="${r.key === ui.race}"><span>${esc(r.label)}</span><small>${a.done}/${a.n}${fl ? `<b class="flagn">⚠${fl}</b>` : ""}</small></button>`;
@@ -974,7 +982,7 @@
     if (!syncUrl() || ui.syncing) return;
     ui.syncing = true; ui.error = ""; renderChip();
     try {
-      const keys = Object.keys(state.dirty).filter((k) => state.records[k]);
+      const keys = pendingKeys();
       if (keys.length) {
         if (!state.settings.token) throw new Error("NO_TOKEN");
         const sent = keys.map((k) => [k, state.records[k].updatedAt]);
@@ -995,14 +1003,14 @@
     } finally {
       ui.syncing = false; saveState(); renderChip();
       // 剛才在更新畫面時使用者按了送出（那一筆沒趕上這一輪）：馬上再跑一次，不要等下一輪定時更新
-      if (!ui.error && Object.keys(state.dirty).some((k) => state.records[k])) syncSoon(50);
+      if (!ui.error && pendingKeys().length) syncSoon(50);
     }
   }
   let syncTimer;
   function syncSoon(ms = 600) { clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, ms); }
   function renderChip() {
     const chip = $("#syncChip");
-    const pending = Object.keys(state.dirty).length;
+    const pending = pendingKeys().length;
     const noToken = !!syncUrl() && !state.settings.token;
     let text, st = "";
     if (!syncUrl()) { text = pending ? `⚠ ${pending} 筆還沒送出` : "未連雲端"; st = "warn"; }
@@ -1050,7 +1058,7 @@
       if (next.token !== state.settings.token) dropLinkKey();
       state.settings = { ...state.settings, ...next };
       saveState(); $("#settings").close(); renderChip();
-      const n = Object.keys(state.dirty).length;
+      const n = pendingKeys().length;
       toast(n && state.settings.token ? `設定已儲存，正在送出 ${n} 筆票數…` : "設定已儲存");
       if (syncUrl()) syncNow();
       return;
@@ -1180,7 +1188,7 @@
       if (!res.ok) return;
       const latest = (await res.text()).match(/app\.js\?v=([\w.-]+)/);
       if (!latest || latest[1] === mine[1]) return;
-      const busy = $$("dialog").some((d) => d.open) || Object.keys(state.dirty).length > 0;
+      const busy = $$("dialog").some((d) => d.open) || pendingKeys().length > 0;
       if (busy) return;
       let tried = "";
       try { tried = sessionStorage.getItem("yilan-reload") || ""; } catch (e) { /* ignore */ }
