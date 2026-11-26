@@ -38,15 +38,20 @@
   /* ---------- 選舉項目 ---------- */
   // scope: all＝全市一份名單；district＝依市民代表選舉區；village＝依里
   const single = (label, seats, cands) => ({ all: { label, seats, cands } });
-  const RACES = [
+  const ALL_RACES = [
     { key: "mayor", label: L.head, full: `${townName}長`, scope: "all", applies: () => true, groupOf: () => "all", groups: single(`${townName}長`, 1, C.mayor) },
     { key: "rep", label: L.rep, full: `${townName}民代表`, scope: "district", applies: () => true, groupOf: (s) => String(s.district),
       groups: Object.fromEntries(districtIds.map((d) => [String(d), { label: `第${d}選舉區`, seats: DATA.districts[d].seats, cands: C.rep[d] || [] }])) },
     { key: "chief", label: L.chief, full: `${townName}${L.chief}`, scope: "village", applies: () => true, groupOf: (s) => s.village,
       groups: Object.fromEntries(Object.entries(C.chief).map(([v, cs]) => [v, { label: v, seats: 1, cands: cs }])) },
-    { key: "county", label: "縣長", full: "宜蘭縣長", scope: "all", applies: () => true, groupOf: () => "all", groups: single("宜蘭縣長", 1, C.county) },
+    // 縣長不在各投開票所登錄（applies 一律 false）：只有一筆「全縣合計」（COUNTYWIDE），由負責人單獨輸入
+    { key: "county", label: "縣長", full: "宜蘭縣長", scope: "all", applies: () => false, groupOf: () => "all", groups: single("宜蘭縣長", 1, C.county) },
     { key: "council", label: "縣議員", full: `宜蘭縣議員（${C.council.area}）`, scope: "all", applies: () => true, groupOf: () => "all", groups: single(C.council.area, C.council.seats, C.council.cands) },
   ];
+  // 這次不登錄的選舉（負責人決定只登錄市長和縣長）。要恢復，把 key 從這裡拿掉就好，其他都不用改；
+  // 雲端試算表裡這幾種選舉的列還在，只是網站不顯示、不能填。
+  const UNUSED_RACES = ["rep", "chief", "council"];
+  const RACES = ALL_RACES.filter((r) => !UNUSED_RACES.includes(r.key));
   const raceByKey = Object.fromEntries(RACES.map((r) => [r.key, r]));
   // 統計頁每一個分類的最上面都固定放兩塊：市長（全部候選人）和縣長（主要兩位放大，其他人小字）。
   // 縣長既然每頁都看得到，統計頁的分類列就不再放「縣長」。填寫票數那一頁不受影響，五種選舉照舊都能填。
@@ -67,7 +72,7 @@
   ];
   for (const sc of SCOPES) byId[sc.id] = sc;
   // 里長只有「里」層級有合計；市民代表沒有「全市」合計；其餘選舉三種層級都有
-  const scopeHas = (sc, r) => (sc.kind === "county" ? r.key === PINNED_ONLY : r.key === "chief" ? sc.kind === "village" : r.key === "rep" ? sc.kind !== "all" : true);
+  const scopeHas = (sc, r) => (sc.kind === "county" || r.key === PINNED_ONLY ? sc.kind === "county" && r.key === PINNED_ONLY : r.key === "chief" ? sc.kind === "village" : r.key === "rep" ? sc.kind !== "all" : true);
   const racesOf = (s) => (s.kind ? RACES.filter((r) => scopeHas(s, r)) : RACES.filter((r) => r.applies(s) && groupOf(r, s)));
   const scopeStations = (sc) => (sc.kind === "county" ? [] : sc.kind === "all" ? stations : sc.kind === "district" ? stationsOf(sc.district) : stations.filter((s) => s.village === sc.village));
 
@@ -169,6 +174,8 @@
   let state = { records: {}, dirty: {}, mine: {}, settings: { url: "", token: "", by: "", race: "mayor", lastId: "" }, lastSync: 0 };
   // 填表人的名字不公開：只有輸入過密碼的裝置才顯示
   const nameOf = (r) => (state.settings.token && r?.by ? r.by : "");
+  // 這台裝置能不能送票數：有密碼，或後端是「不用密碼」的開放模式
+  const canSend = () => !!state.settings.token || !!state.settings.open;
   const rk = (id, race) => `${id}|${race}`;
   const getRec = (id, race) => state.records[rk(id, race)];
   function loadState() {
@@ -181,6 +188,8 @@
   // 每一筆票數的時間都用這個，「時間較新的蓋掉舊的」才不會被某支時間不準的手機卡住。
   const CLOCK_SLACK = 30000; // 差不到 30 秒就當作是準的
   function nowMs() { return Date.now() + (Number(state.settings.skew) || 0); }
+  // 還沒送出的紀錄。這台裝置上若留著「已拿掉的選舉」的紀錄：不送、不算在「還沒送出」裡，但也不刪（恢復選舉時還在）
+  const pendingKeys = () => Object.keys(state.dirty).filter((k) => state.records[k] && raceByKey[state.records[k].race]);
   function saveState() {
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
   }
@@ -316,7 +325,9 @@
     return out;
   }
   function renderRaceBar() {
-    $("#raceBar").innerHTML = RACES.filter((r) => !(ui.tab === "overview" && r.key === PINNED_ONLY)).map((r) => {
+    const shown = RACES.filter((r) => r.key !== PINNED_ONLY); // 縣長不是一個可以切換的分類（填寫頁、統計頁都一樣）
+    $("#raceBar").hidden = shown.length < 2; // 只剩一種選舉可切換時，整排分類不用顯示
+    $("#raceBar").innerHTML = shown.map((r) => {
       const a = agg(r, stations);
       const fl = Object.keys(flagsFor(r)).length;
       return `<button type="button" data-race="${r.key}" aria-pressed="${r.key === ui.race}"><span>${esc(r.label)}</span><small>${a.done}/${a.n}${fl ? `<b class="flagn">⚠${fl}</b>` : ""}</small></button>`;
@@ -401,7 +412,19 @@
     const hint = `<p class="hint"><b>合計</b>是整個範圍加起來的票數（例如某個${L.unit}、某個選舉區或${L.whole}）。在投開票所現場回報的人，只要到「各投開票所」填就好，<b>不用</b>再填合計；這裡是給拿得到合計數字的人用的，總覽頁會把它和各所加總並排對照。</p>`;
     $("#list").innerHTML = hint + (html.join("") || `<p class="empty">沒有符合的項目</p>`);
   }
+  // 填寫頁最上面那一條：縣長全縣票數目前是多少，和單獨輸入的按鈕
+  function renderCountyQuick() {
+    const el = $("#countyQuick");
+    if (!el) return;
+    const cw = getRec("COUNTYWIDE", PINNED_ONLY);
+    const g = raceByKey[PINNED_ONLY].groups.all;
+    const now = cw && cw.status !== "pending"
+      ? g.cands.filter((c) => COUNTY_MAIN.includes(c.name)).map((c) => `${esc(c.name)} <b>${fmt(cw.votes?.[c.no] || 0)}</b>`).join("　") + `　<small>${hhmm(cw.updatedAt)} 更新</small>`
+      : "還沒輸入";
+    el.innerHTML = `<p class="hint county-quick"><span><b>縣長（全縣得票）</b>　${now}</span><button type="button" class="btn" data-act="countywide">輸入縣長全縣票數</button></p>`;
+  }
   function renderList() {
+    renderCountyQuick();
     renderMode();
     if (ui.mode === "total") return renderTotals();
     renderSeg();
@@ -594,7 +617,7 @@
       const lines = todo.map(([key, d]) => `<li><span>${esc(raceByKey[key].label)}</span>${d.empty ? `<b class="to-pending">清空，變回未開票</b>` : `<b>${fmt(d.total)} 票</b>`}</li>`).join("");
       const warnHtml = warns.length ? `<ul class="ask-warn">${warns.map((w) => `<li>${w}</li>`).join("")}</ul>` : "";
       // 這支手機還沒填過名字：在同一個視窗請他填（只問這一次，之後會記住）
-      const needName = !by;
+      const needName = !by && !state.settings.open; // 不用密碼的模式連名字也不問
       const ans = await ask({
         title: "是這一所嗎？",
         html: `${where}<ul class="ask-list">${lines}</ul>${warnHtml}`,
@@ -655,7 +678,7 @@
     if (none) { show("info", "沒有新的修改。"); return; }
     const names = keys.map((k) => raceByKey[k].label).join("、");
     const pend = keys.filter((k) => state.dirty[rk(ui.editId, k)]);
-    const needToken = !!syncUrl() && !state.settings.token;
+    const needToken = !!syncUrl() && !canSend();
     if (!syncUrl()) show("warn", `⚠ <b>還沒送出！</b>這支手機沒有連到雲端。`);
     else if (pend.length && needToken) show("warn", `⚠ <b>還沒送出！</b>請輸入同步密碼，票數才會送出。`, btn("輸入同步密碼"));
     else if (pend.length && ui.error === OLD_BACKEND) show("warn", `⚠ <b>還沒送出！</b>${esc(OLD_BACKEND)}。票數還在手機裡，不用重填。`);
@@ -873,11 +896,9 @@
     const ck = calc(cw);
     const cwAgg = { n: 0, done: 0, counting: 0, votes: cwFilled ? cw.votes || {} : {}, invalid: cwFilled ? ck.invalid : 0, valid: cwFilled ? ck.valid : 0, total: cwFilled ? ck.total : 0 };
     const cwProg = `<p class="res-prog">${cwFilled ? `${cw.status === "done" ? "已開完" : "開票中"}　${hhmm(cw.updatedAt)} 更新` : "還沒輸入全縣票數"}${
-      state.settings.token ? `<button type="button" class="linkbtn" data-act="countywide">輸入全縣票數</button>` : ""}</p>`;
-    const local = agg(county, raceStations(county));
+      canSend() ? `<button type="button" class="linkbtn" data-act="countywide">輸入全縣票數</button>` : ""}</p>`;
     const g0 = county.groups.all;
-    const localLine = `<span>其中${esc(townName)}各投開票所回報加總（${local.done}/${local.n} 所完成）：${g0.cands.filter((c) => COUNTY_MAIN.includes(c.name)).map((c) => `${esc(c.name)} <b>${fmt(local.votes[c.no] || 0)}</b>`).join("　")}</span>`;
-    const countyTop = candBlock(g0, cwAgg, `${esc(county.full)}　全縣得票`, false, true, { pin: true, party: true, mains: COUNTY_MAIN, prog: cwProg, noBar: true, footExtra: localLine });
+    const countyTop = candBlock(g0, cwAgg, `${esc(county.full)}　全縣得票`, false, true, { pin: true, party: true, mains: COUNTY_MAIN, prog: cwProg, noBar: true });
     const mayorTop = candBlock(mayor.groups.all, agg(mayor, raceStations(mayor)), `${esc(mayor.full)}　${L.whole}得票`, false, true, { pin: race.key !== "mayor", party: true });
     $("#overviewRoot").innerHTML = `<div class="ov">${countyTop}${mayorTop}${main}${stTable}${tools}</div>`;
   }
@@ -978,6 +999,8 @@
   async function timed(run) {
     const t0 = Date.now();
     const res = await run();
+    // open：後端說「現在不用密碼就能送」。記在這台裝置上，下次打開不用等第一次讀取就知道
+    if (res && res.ok) state.settings.open = !!res.open;
     if (res && res.ok && Number(res.now)) {
       const d = Number(res.now) - (t0 + Date.now()) / 2;
       state.settings.skew = Math.abs(d) > CLOCK_SLACK ? Math.round(d) : 0;
@@ -1003,10 +1026,11 @@
   async function syncNow() {
     if (!syncUrl() || ui.syncing) return;
     ui.syncing = true; ui.error = ""; renderChip();
+    const wasOpen = !!state.settings.open;
     try {
-      const keys = Object.keys(state.dirty).filter((k) => state.records[k]);
+      const keys = pendingKeys();
       if (keys.length) {
-        if (!state.settings.token) throw new Error("NO_TOKEN");
+        if (!canSend()) throw new Error("NO_TOKEN");
         // 別的鄉鎮市：送出前先確認後端認得這個鄉鎮市。舊版後端會把票寫進宜蘭市的表，所以沒確認就不送。
         if (!IS_DEFAULT && !ui.backendOk) {
           const chk = await getAll();
@@ -1014,7 +1038,7 @@
           ui.backendOk = true;
         }
         const sent = keys.map((k) => [k, state.records[k].updatedAt]);
-        const res = await post({ action: "upsertMany", token: state.settings.token, sentAt: nowMs(), records: keys.map((k) => wire(state.records[k])) });
+        const res = await post({ action: "upsertMany", token: state.settings.token || "", sentAt: nowMs(), records: keys.map((k) => wire(state.records[k])) });
         if (!res.ok) throw new Error(res.error || "上傳失敗");
         for (const [k, at] of sent) if (state.records[k].updatedAt === at) delete state.dirty[k];
         // 票已經送到了：馬上顯示「已送出」，不用等下面那次讀取（讀取只是順便抓別人的最新資料）
@@ -1026,21 +1050,22 @@
       if (res.who) state.settings.by = String(res.who); // 用自己的專屬密碼：名字以負責人名單上的為準
       const n = mergeRemote(res.records || []);
       state.lastSync = Date.now();
-      if (n) renderAll();
+      // 後端剛告訴我們「不用密碼」（或改回要密碼）：畫面上的按鈕要跟著出現／消失，不用等使用者自己切換頁面
+      if (n || wasOpen !== !!state.settings.open) renderAll();
     } catch (e) {
       ui.error = e.message === "NO_TOKEN" ? "NO_TOKEN" : e.message || "同步失敗";
     } finally {
       ui.syncing = false; saveState(); renderChip();
       // 剛才在更新畫面時使用者按了送出（那一筆沒趕上這一輪）：馬上再跑一次，不要等下一輪定時更新
-      if (!ui.error && Object.keys(state.dirty).some((k) => state.records[k])) syncSoon(50);
+      if (!ui.error && pendingKeys().length) syncSoon(50);
     }
   }
   let syncTimer;
   function syncSoon(ms = 600) { clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, ms); }
   function renderChip() {
     const chip = $("#syncChip");
-    const pending = Object.keys(state.dirty).length;
-    const noToken = !!syncUrl() && !state.settings.token;
+    const pending = pendingKeys().length;
+    const noToken = !!syncUrl() && !canSend();
     let text, st = "";
     if (!syncUrl()) { text = pending ? `⚠ ${pending} 筆還沒送出` : "未連雲端"; st = "warn"; }
     else if (ui.syncing && (pending || !state.lastSync)) { text = pending ? "傳送中…" : "更新中…"; st = "busy"; } // 背景定時更新時不閃爍
@@ -1088,7 +1113,7 @@
       if (next.token !== state.settings.token) dropLinkKey();
       state.settings = { ...state.settings, ...next };
       saveState(); $("#settings").close(); renderChip();
-      const n = Object.keys(state.dirty).length;
+      const n = pendingKeys().length;
       toast(n && state.settings.token ? `設定已儲存，正在送出 ${n} 筆票數…` : "設定已儲存");
       if (syncUrl()) syncNow();
       return;
@@ -1109,7 +1134,7 @@
         const res = await getAll();
         stMsg(res.ok ? `連線成功，雲端目前有 ${(res.records || []).filter((r) => r.updatedAt && r.status !== "pending").length} 筆已填資料。` : res.error || "連線失敗", res.ok ? "ok" : "err");
       } else if (act === "stInit") {
-        if (!cur.token) return stMsg("初始化需要同步密碼", "err");
+        if (!cur.token && !state.settings.open) return stMsg("初始化需要同步密碼", "err");
         // 雲端已有票數時先講清楚：初始化只補缺少的列，不會清空
         const have = await getAll();
         if (!have.ok) return stMsg(have.error || "連線失敗", "err");
@@ -1125,8 +1150,10 @@
         for (const s of stations) for (const race of racesOf(s)) {
           records.push(wire({ id: s.id, race: race.key, votes: {}, invalid: 0, electors: null, status: "pending", by: "", updatedAt: 0 }));
         }
-        const res = await post({ action: "init", token: cur.token, records, summary: RACES.flatMap((r) => Object.entries(r.groups).map(([key, g]) => ({ race: r.full, group: g.label, seats: g.seats,
-          scopeId: r.scope === "all" ? "ALL" : r.scope === "district" ? `D${key}` : `V:${key}`, cands: g.cands.map((c) => ({ no: c.no, name: c.name, party: c.party })) }))) });
+        // 縣長全縣合計那一筆也先建好，試算表一打開就看得到那幾列
+        records.push(wire({ id: "COUNTYWIDE", race: PINNED_ONLY, votes: {}, invalid: 0, electors: null, status: "pending", by: "", updatedAt: 0 }));
+        const res = await post({ action: "init", token: cur.token || "", records, summary: RACES.flatMap((r) => Object.entries(r.groups).map(([key, g]) => ({ race: r.full, group: g.label, seats: g.seats,
+          scopeId: r.key === PINNED_ONLY ? "COUNTYWIDE" : r.scope === "all" ? "ALL" : r.scope === "district" ? `D${key}` : `V:${key}`, cands: g.cands.map((c) => ({ no: c.no, name: c.name, party: c.party })) }))) });
         stMsg(res.ok ? `已建立 ${res.rows} 列明細與「彙總」分頁。` : res.error || "初始化失敗", res.ok ? "ok" : "err");
       }
     } catch (e) {
@@ -1136,7 +1163,7 @@
 
   /* ---------- 事件 ---------- */
   function renderAll() {
-    if (ui.tab === "overview" && ui.race === PINNED_ONLY) ui.race = "mayor"; // 統計頁沒有「縣長」這個分類
+    if (ui.race === PINNED_ONLY) ui.race = "mayor"; // 沒有「縣長」這個分類
     renderRaceBar();
     if (ui.tab === "overview") renderOverview(); else renderList();
     renderChip();
@@ -1158,11 +1185,11 @@
       if (act === "askYes") return answerAsk(true, t.dataset.val);
       if (act === "askNo") return answerAsk(false);
       if (act === "save") {
-        saveEditor().then((ok) => { if (ok && ui.savedAt && !ui.savedAt.none && syncUrl() && !state.settings.token) openPasswordPrompt(); });
+        saveEditor().then((ok) => { if (ok && ui.savedAt && !ui.savedAt.none && syncUrl() && !canSend()) openPasswordPrompt(); });
         return;
       }
       if (act === "askPassword") return openPasswordPrompt();
-      if (act === "countywide") { ui.mode = "total"; ui.race = PINNED_ONLY; setTab("entry"); return openEditor("COUNTYWIDE", PINNED_ONLY); }
+      if (act === "countywide") return openEditor("COUNTYWIDE", PINNED_ONLY); // 縣長全縣票數：單獨一張表單，不用切換頁面
       if (act === "fix") { ui.mode = "station"; setTab("entry"); return openEditor(t.dataset.id, ui.race); }
       if (act === "pwGo") return void submitPassword();
       if (act === "pwLater") return $("#pw").close();
@@ -1222,7 +1249,7 @@
       if (!res.ok) return;
       const latest = (await res.text()).match(/app\.js\?v=([\w.-]+)/);
       if (!latest || latest[1] === mine[1]) return;
-      const busy = $$("dialog").some((d) => d.open) || Object.keys(state.dirty).length > 0;
+      const busy = $$("dialog").some((d) => d.open) || pendingKeys().length > 0;
       if (busy) return;
       let tried = "";
       try { tried = sessionStorage.getItem("yilan-reload") || ""; } catch (e) { /* ignore */ }
