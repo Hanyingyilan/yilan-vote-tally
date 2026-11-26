@@ -64,7 +64,7 @@ if (ROOT / "help.html").exists():
     for old, new in (("｜宜蘭市開票統計", f"｜{name}開票統計"),
                      ("宜蘭市開票，用手機回報票數", f"{name}開票，用手機回報票數"),
                      ("「搜尋編號或里」", f"「搜尋編號或{L['unit']}」"),
-                     ("切換市長、市民代表、里長、", f"切換{L['head']}、{L['rep']}、{L['chief']}、"),
+                     ("每一所只要填市長。", f"每一所只要填{L['head']}。"),
                      ('<span class="no">0001</span><span class="nm">光復國小<small>鄰 1-5,8,14-15</small></span>',
                       f'<span class="no">{st["id"]}</span><span class="nm">{st["name"]}<small>鄰 {st["neighbors"]}</small></span>')):
         assert hp.count(old) == 1, f"help.html 的內容變了，找不到：{old}"

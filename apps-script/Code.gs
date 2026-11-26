@@ -31,7 +31,7 @@
  */
 
 // 每次改這份程式就把日期往後改。試算表「開票工具」選單最下面會顯示，用來確認貼上去的是不是最新的。
-var VERSION = '2026-11-12 戊（宜蘭市以外的鄉鎮市用）';
+var VERSION = '2026-11-26 己（宜蘭市以外的鄉鎮市用；不用密碼）';
 var DETAIL = '得票明細';
 var SUMMARY = '彙總';
 var DEFAULT_TOWN = '宜蘭市';
@@ -43,6 +43,11 @@ var COL = { id: 0, district: 1, village: 2, venue: 3, race: 4, group: 5, no: 6, 
 var STATUS_LABEL = { pending: '未開票', counting: '開票中', done: '已完成' };
 var STATUS_CODE = { '未開票': 'pending', '開票中': 'counting', '已完成': 'done' };
 var MAX_ROWS = 10000;
+// 開放模式：true ＝ 不用任何密碼就能送票數。任何拿到網站網址的人都能填、都能改，被改掉只能靠「修改記錄」查。
+// 這份試算表裡的每一個鄉鎮市都一樣（一份試算表通常只放一個鄉鎮市）。
+// 要恢復密碼保護：改成 false，存檔，再用「管理部署作業 → 新版本」部署一次。
+var OPEN_WRITE = true;
+var senderTag_ = '（共用密碼）'; // 「修改記錄」裡，沒有名單名字的送出者後面加的說明
 var ROSTER = '回報員';
 var ROSTER_HEADER = ['名字', '密碼', '停用（打勾＝不能再送）', '專屬連結（傳給本人，點一下就能回報）'];
 var ROSTER_SEC = 30;     // 名單快取秒數（在名單分頁改東西會立刻清掉快取）
@@ -90,7 +95,8 @@ function doGet(e) {
 
 // 每次讀取都附上「這裡現在幾點」（now），手機用它校正自己不準的時鐘。加在快取之後，所以一定是當下的時間。
 function withNow_(text) {
-  return '{"now":' + Date.now() + ',' + text.slice(1);
+  // ver：從外面也看得出線上跑的是哪一版。open：告訴網站「現在不用密碼」，網站就不會再問密碼和名字
+  return '{"now":' + Date.now() + ',"ver":' + JSON.stringify(VERSION) + (OPEN_WRITE ? ',"open":true' : '') + ',' + text.slice(1);
 }
 
 // 「時間較新的蓋掉舊的」是照每一筆的 updatedAt，而那是手機自己的時鐘。
@@ -132,14 +138,23 @@ function doPost(e) {
     var body = JSON.parse(e.postData.contents);
     var town = town_(body.town);
     var token = token_(town);
-    if (!token) return json_({ ok: false, error: '尚未在「指令碼屬性」設定 TOKEN' });
-    var who = auth_(body.token, token, town);
-    if (!who) return json_({ ok: false, error: '同步密碼不正確' });
-    if (who.off) return json_({ ok: false, error: '這組密碼已停用，請聯絡負責人' });
+    var who;
+    if (OPEN_WRITE) {
+      // 開放模式：沒帶密碼、密碼不對、被停用的，一律當成「沒有密碼的人」放行。
+      // 帶了對的密碼仍然認得出是誰（這個鄉鎮市名單上的名字、管理員），名字照舊記進填表人。
+      who = token ? auth_(body.token, token, town) : null;
+      if (!who || who.off) who = { open: true };
+    } else {
+      if (!token) return json_({ ok: false, error: '尚未在「指令碼屬性」設定 TOKEN' });
+      who = auth_(body.token, token, town);
+      if (!who) return json_({ ok: false, error: '同步密碼不正確' });
+      if (who.off) return json_({ ok: false, error: '這組密碼已停用，請聯絡負責人' });
+    }
+    senderTag_ = who.open ? '（沒有密碼）' : '（共用密碼）';
 
-    // 帶密碼的讀取：含填表人名字。只讀不寫，所以不用排隊
+    // 帶密碼的讀取：含填表人名字。只讀不寫，所以不用排隊。沒有密碼的人讀不到名字（和公開讀取一樣）
     if (body.action === 'read') {
-      var text = withNow_(readCached_(town, true));
+      var text = withNow_(readCached_(town, !who.open));
       // 用回報員密碼登入的，順便告訴手機「你是誰」，手機就不用再問名字
       return textOut_(who.name ? '{"who":' + JSON.stringify(who.name) + ',' + text.slice(1) : text);
     }
@@ -157,7 +172,8 @@ function doPost(e) {
       return json_({ ok: true, town: town, count: count });
     }
     if (body.action === 'init') {
-      if (!who.admin) return json_({ ok: false, error: '初始化要用管理員密碼' });
+      // 初始化只會補上缺少的列、重做「彙總」，不會動到已經填的票數，所以開放模式下不用密碼也可以按
+      if (!who.admin && !who.open) return json_({ ok: false, error: '初始化要用管理員密碼' });
       write_(town, body.records || [], true);
       buildSummary_(town, body.summary || []);
       cacheClear_(town);
@@ -395,7 +411,7 @@ function logChanges_(town, sh, idx, changed, sender) {
     var before = describe_(first[COL.status], oldPairs, oldInvalid);
     var after = describe_(STATUS_LABEL[r.status] || '未開票', newPairs, Number(r.invalid) || 0);
     if (before === after) return; // 數字和狀態都一樣（例如重送），不用記
-    out.push([now, sender || ((r.by || '沒填名字') + '（共用密碼）'), r.id, r.venue, r.raceLabel, before, after,
+    out.push([now, sender || ((r.by || '沒填名字') + senderTag_), r.id, r.venue, r.raceLabel, before, after,
       first[COL.by] || '', first[COL.time] || '']);
   });
   if (!out.length) return;
@@ -599,7 +615,7 @@ function resetOne() {
   var ui = SpreadsheetApp.getUi();
   var town = activeTown_();
   var a = ui.prompt(town + '：歸零某一個投開票所',
-    '請輸入' + town + '的投開票所編號，例如 0015。\n（合計請輸入：ALL＝全市，D1～D4＝選舉區，V:七結里＝里）', ui.ButtonSet.OK_CANCEL);
+    '請輸入' + town + '的投開票所編號，例如 0015。\n（合計請輸入：COUNTYWIDE＝縣長全縣票數，ALL＝全市／全鄉鎮，D1～D4＝選舉區，V:七結里＝里）', ui.ButtonSet.OK_CANCEL);
   if (a.getSelectedButton() !== ui.Button.OK) return;
   var id = String(a.getResponseText()).trim();
   if (/^\d+$/.test(id)) id = ('0000' + id).slice(-4);

@@ -115,6 +115,9 @@ input[type="search"], select, .slim input {
   width: 100%; min-height: 48px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface); padding: 8px 12px;
 }
 select { width: auto; }
+.county-quick { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.county-quick span { margin: 4px 12px 4px 0; }
+.county-quick small { color: var(--muted); font-size: 16px; }
 .hint { background: var(--surface); border-left: 6px solid var(--ink); border-radius: 6px; padding: 10px 14px; margin: 12px 0 4px; font-size: 18px; }
 
 /* ---------- 投開票所清單 ---------- */
