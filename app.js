@@ -617,7 +617,7 @@
       const lines = todo.map(([key, d]) => `<li><span>${esc(raceByKey[key].label)}</span>${d.empty ? `<b class="to-pending">清空，變回未開票</b>` : `<b>${fmt(d.total)} 票</b>`}</li>`).join("");
       const warnHtml = warns.length ? `<ul class="ask-warn">${warns.map((w) => `<li>${w}</li>`).join("")}</ul>` : "";
       // 這支手機還沒填過名字：在同一個視窗請他填（只問這一次，之後會記住）
-      const needName = !by && !state.settings.open; // 不用密碼的模式連名字也不問
+      const needName = !by && !state.settings.open && CFG.askName !== false; // 不用密碼的模式、或設定檔寫了不問，就不問名字
       const ans = await ask({
         title: "是這一所嗎？",
         html: `${where}<ul class="ask-list">${lines}</ul>${warnHtml}`,

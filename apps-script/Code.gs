@@ -31,7 +31,7 @@
  */
 
 // 每次改這份程式就把日期往後改。試算表「開票工具」選單最下面會顯示，用來確認貼上去的是不是最新的。
-var VERSION = '2026-11-26 己（宜蘭市以外的鄉鎮市用；不用密碼）';
+var VERSION = '2026-11-26 庚（宜蘭市以外的鄉鎮市用；一組密碼）';
 var DETAIL = '得票明細';
 var SUMMARY = '彙總';
 var DEFAULT_TOWN = '宜蘭市';
@@ -43,10 +43,16 @@ var COL = { id: 0, district: 1, village: 2, venue: 3, race: 4, group: 5, no: 6, 
 var STATUS_LABEL = { pending: '未開票', counting: '開票中', done: '已完成' };
 var STATUS_CODE = { '未開票': 'pending', '開票中': 'counting', '已完成': 'done' };
 var MAX_ROWS = 10000;
+// 目前的設定：網站大家都能看；要填票數必須輸入密碼，而且只有一組密碼（指令碼屬性的 TOKEN）。
+//   OPEN_WRITE = false → 要密碼才能填（現在這樣）。true → 完全開放，不用密碼也能填
+//   USE_ROSTER = false → 只認 TOKEN 那一組密碼（現在這樣）。true →「回報員」分頁裡每個人自己的密碼和連結也算數
+// 這份試算表裡的每一個鄉鎮市都一樣（一份試算表通常只放一個鄉鎮市）。
+// 改完要存檔，再用「管理部署作業 → 新版本」部署一次才會生效。
+var USE_ROSTER = false;
 // 開放模式：true ＝ 不用任何密碼就能送票數。任何拿到網站網址的人都能填、都能改，被改掉只能靠「修改記錄」查。
 // 這份試算表裡的每一個鄉鎮市都一樣（一份試算表通常只放一個鄉鎮市）。
 // 要恢復密碼保護：改成 false，存檔，再用「管理部署作業 → 新版本」部署一次。
-var OPEN_WRITE = true;
+var OPEN_WRITE = false;
 var senderTag_ = '（共用密碼）'; // 「修改記錄」裡，沒有名單名字的送出者後面加的說明
 var ROSTER = '回報員';
 var ROSTER_HEADER = ['名字', '密碼', '停用（打勾＝不能再送）', '專屬連結（傳給本人，點一下就能回報）'];
@@ -173,7 +179,8 @@ function doPost(e) {
     }
     if (body.action === 'init') {
       // 初始化只會補上缺少的列、重做「彙總」，不會動到已經填的票數，所以開放模式下不用密碼也可以按
-      if (!who.admin && !who.open) return json_({ ok: false, error: '初始化要用管理員密碼' });
+      // 名單上的人（有專屬連結的人）也可以按，不用另外輸入管理員密碼
+      if (!who.admin && !who.open && !who.name) return json_({ ok: false, error: '初始化要用管理員密碼' });
       write_(town, body.records || [], true);
       buildSummary_(town, body.summary || []);
       cacheClear_(town);
@@ -205,6 +212,7 @@ function auth_(given, adminToken, town) {
 
 // 這個鄉鎮市「回報員」分頁的名單：[{ name, pass, off }]。密碼太短或沒填名字的列不算。
 function roster_(town) {
+  if (!USE_ROSTER) return []; // 只認 TOKEN 那一組密碼：名單上就算還留著舊的密碼和連結，也一律不算數
   var ck = rosterCacheKey_(town);
   var c = null;
   try {
@@ -456,14 +464,13 @@ function readAll_(town) {
 // 所以所有人的手機下次同步（約 20 秒內）也會跟著變成「未開票」，不會把舊資料又傳回來。
 
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('開票工具')
+  var m = SpreadsheetApp.getUi().createMenu('開票工具')
     .addItem('全部歸零（清空所有票數）', 'resetAll')
     .addItem('歸零某一個投開票所', 'resetOne')
-    .addSeparator()
-    .addItem('回報員名單：產生每個人的密碼和連結', 'setupRoster')
-    .addSeparator()
-    .addItem('程式版本：' + VERSION, 'showVersion')
-    .addToUi();
+    .addSeparator();
+  // 只用一組密碼時，不顯示「回報員名單」（那裡產生的密碼和連結不會算數）
+  if (USE_ROSTER) m.addItem('回報員名單：產生每個人的密碼和連結', 'setupRoster').addSeparator();
+  m.addItem('程式版本：' + VERSION, 'showVersion').addToUi();
 }
 
 function showVersion() {
