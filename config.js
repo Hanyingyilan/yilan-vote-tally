@@ -6,8 +6,8 @@ window.TALLY_CONFIG = {
   electionDate: "2026-11-28",
 
   // 第一次送出時要不要請填表人輸入名字。false＝不問（只有幾個人在打票數，不用分是誰）。
-  // 宜蘭市（main 分支）是 false。礁溪鄉等負責人決定要不要改成「一組密碼」再跟著改；用專屬連結的人本來就不會被問。
-  askName: true,
+  // 和宜蘭市（main 分支）一樣是 false：配合 Code.gs「一組密碼」（只有幾個人在打票數）。
+  askName: false,
 
   // Google Apps Script 網頁應用程式網址（結尾是 /exec）。留空代表只存在各人的瀏覽器。
   // 設定方式見 README.md 的「串接 Google 試算表」。
