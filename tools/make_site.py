@@ -61,15 +61,23 @@ if (ROOT / "help.html").exists():
     data = json.loads(raw[raw.index("= {") + 2:raw.rindex("}") + 1])
     L, st = data["labels"], data["stations"][0]
     hp = (ROOT / "help.html").read_text(encoding="utf8")
+    n_mayor = len(data["candidates"]["mayor"])
+    cn = "零一二三四五六七八九十"[n_mayor] if n_mayor <= 10 else str(n_mayor)
     for old, new in (("｜宜蘭市開票統計", f"｜{name}開票統計"),
-                     ("宜蘭市開票，用手機回報票數", f"{name}開票，用手機回報票數"),
+                     ("宜蘭市開票，用電腦或手機把票數打進網站", f"{name}開票，用電腦或手機把票數打進網站"),
+                     ("網址是 hanyingyilan.github.io/yilan-vote-tally/。", f"網址是 hanyingyilan.github.io/yilan-vote-tally/{SLUG[code]}/。"),
                      ("「搜尋編號或里」", f"「搜尋編號或{L['unit']}」"),
+                     ("「第1區～第4區」", f"「第1區～第{len(data['districts'])}區」"),
+                     ("填市長三位候選人的票數和無效票", f"填{L['head']}{cn}位候選人的票數和無效票"),
                      ("每一所只要填市長。", f"每一所只要填{L['head']}。"),
+                     ("各里、各選舉區和全市的市長票數會自動加總", f"各{L['unit']}、各選舉區和{L['whole']}的{L['head']}票數會自動加總"),
                      ('<span class="no">0001</span><span class="nm">光復國小<small>鄰 1-5,8,14-15</small></span>',
                       f'<span class="no">{st["id"]}</span><span class="nm">{st["name"]}<small>鄰 {st["neighbors"]}</small></span>')):
         assert hp.count(old) == 1, f"help.html 的內容變了，找不到：{old}"
         hp = hp.replace(old, new)
     assert "宜蘭市" not in hp, "help.html 裡還有沒換掉的「宜蘭市」"
+    for w in ("市長", "市民", "里長", "各里", "全市"):
+        assert w not in hp, f"help.html 裡還有沒換掉的「{w}」"
     (out / "help.html").write_text(hp, encoding="utf8")
 
 cfg = (ROOT / "config.js").read_text(encoding="utf8")
