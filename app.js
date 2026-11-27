@@ -15,7 +15,10 @@
   const stationsOf = (d) => stations.filter((s) => s.district === d);
   const STATUS = { pending: "未開票", counting: "開票中", done: "已完成" };
   const LS_KEY = "yilan-vote-tally:v2";
-  const SYNC_INTERVAL = 20000 + Math.floor(Math.random() * 5000); // 每台裝置錯開一點，避免同一秒一起讀取
+  // 多久自動跟雲端要一次最新票數。一般約 8～10 秒（每台裝置錯開一點，避免同一秒一起讀取）；
+  // 網址加上 ?fast=1 的裝置約 3 秒一次，給投影用的那一台。太多台同時開快速模式會把 Google 後端塞住，所以不當成預設。
+  const FAST = /[?&]fast=1/.test(location.search);
+  const SYNC_INTERVAL = FAST ? 3000 + Math.floor(Math.random() * 500) : 8000 + Math.floor(Math.random() * 2000);
 
   /* ---------- 選舉項目 ---------- */
   // scope: all＝全市一份名單；district＝依市民代表選舉區；village＝依里
