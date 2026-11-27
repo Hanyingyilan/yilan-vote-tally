@@ -33,10 +33,11 @@
   const STATUS = { pending: "未開票", counting: "開票中", done: "已完成" };
   // 每個鄉鎮市的票數各存各的（宜蘭市沿用原本的名稱，舊資料不受影響）
   const LS_KEY = IS_DEFAULT ? "yilan-vote-tally:v2" : `yilan-vote-tally:v2:${DATA.code}`;
-  // 多久自動跟雲端要一次最新票數。一般約 8～10 秒（每台裝置錯開一點，避免同一秒一起讀取）；
-  // 網址加上 ?fast=1 的裝置約 3 秒一次，給投影用的那一台。太多台同時開快速模式會把 Google 後端塞住，所以不當成預設。
-  const FAST = /[?&]fast=1/.test(location.search);
-  const SYNC_INTERVAL = FAST ? 3000 + Math.floor(Math.random() * 500) : 8000 + Math.floor(Math.random() * 2000);
+  // 多久自動跟雲端要一次最新票數：每台裝置約 3～4 秒（錯開一點，避免同一秒一起讀取）。
+  // 負責人確認只有幾台裝置在用（3～5 人輸入、其他人看投影），所以全部都用快的。
+  // 如果之後要把網址公開給很多人看，請改回 8000 以上：Google 後端同時只能處理約 30 個連線，太多台 3 秒輪詢會塞住。
+  // （同一個 Google 帳號下的每份試算表合起來算，例如宜蘭市和礁溪鄉。網址上的 ?fast=1 已經沒有作用，留著也不會壞。）
+  const SYNC_INTERVAL = 3000 + Math.floor(Math.random() * 1000);
 
   /* ---------- 選舉項目 ---------- */
   // scope: all＝全市一份名單；district＝依市民代表選舉區；village＝依里
